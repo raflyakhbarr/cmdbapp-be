@@ -1,0 +1,16 @@
+ Abaikan semua file log
+*.log
+
+# Abaikan folder node_modules dan cache
+node_modules/
+cache/
+
+# Abaikan file .env
+.env
+
+# Abaikan file .DS_Store di semua direktori
+.DS_Store
+
+# Abaikan folder build, tapi tidak dengan file important.build
+build/
+!build/important.build
