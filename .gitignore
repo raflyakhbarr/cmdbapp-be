@@ -1,5 +1,4 @@
- Abaikan semua file log
-*.log
+.log
 
 # Abaikan folder node_modules dan cache
 node_modules/
