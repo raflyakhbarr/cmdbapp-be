@@ -334,4 +334,31 @@ router.delete('/connections/to-group/:sourceId/:targetGroupId', async (req, res)
   }
 });
 
+router.post('/connections/from-group', async (req, res) => {
+  const { source_group_id, target_id } = req.body;
+  
+  if (!source_group_id || !target_id) {
+    return res.status(400).json({ error: 'source_group_id and target_id are required' });
+  }
+  
+  try {
+    const result = await connectionModel.createGroupToItemConnection(source_group_id, target_id);
+    await emitCmdbUpdate(cmdbModel);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/connections/from-group/:sourceGroupId/:targetId', async (req, res) => {
+  const { sourceGroupId, targetId } = req.params;
+  try {
+    await connectionModel.deleteGroupToItemConnection(sourceGroupId, targetId);
+    await emitCmdbUpdate(cmdbModel);
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

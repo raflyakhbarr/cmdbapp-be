@@ -87,6 +87,20 @@ const getConnectionsWithGroups = (itemId) => pool.query(
   [itemId]
 );
 
+const createGroupToItemConnection = (groupId, itemId) =>
+  pool.query(
+    'INSERT INTO connections(source_group_id, target_id) VALUES($1, $2) RETURNING *',
+    [groupId, itemId]
+  );
+
+const deleteGroupToItemConnection = (groupId, itemId) =>
+  pool.query(
+    'DELETE FROM connections WHERE source_group_id = $1 AND target_id = $2',
+    [groupId, itemId]
+  );
+
+
+
 module.exports = {
   getAllConnections,
   getConnectionsByItemId,
@@ -99,4 +113,6 @@ module.exports = {
   createItemToGroupConnection,
   deleteItemToGroupConnection,
   getConnectionsWithGroups,
+  createGroupToItemConnection,
+  deleteGroupToItemConnection,
 };
