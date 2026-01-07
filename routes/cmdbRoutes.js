@@ -8,9 +8,10 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../db');
 const { env } = require('process');
+const { authenticateToken } = require('../middleware/auth');
 
 // Get all items
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const result = await cmdbModel.getAllItems();
     res.json(result.rows);
@@ -20,7 +21,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get all connections
-router.get('/connections', async (req, res) => {
+router.get('/connections', authenticateToken, async (req, res) => {
   try {
     const result = await connectionModel.getAllConnections();
     res.json(result.rows);
@@ -30,7 +31,7 @@ router.get('/connections', async (req, res) => {
 });
 
 // Get connections for specific item
-router.get('/:id/connections', async (req, res) => {
+router.get('/:id/connections', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await connectionModel.getConnectionsByItemId(id);
@@ -41,7 +42,7 @@ router.get('/:id/connections', async (req, res) => {
 });
 
 // Get affected items (cascade view)
-router.get('/:id/affected', async (req, res) => {
+router.get('/:id/affected', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await connectionModel.getAffectedItems(id);
@@ -52,7 +53,7 @@ router.get('/:id/affected', async (req, res) => {
 });
 
 // Method post buat item
-router.post('/', upload.array('images', 10), async (req, res) => {
+router.post('/', authenticateToken, upload.array('images', 10), async (req, res) => {
   const { name, type, description, status, ip, category, location, group_id, env_type, position } = req.body;
   
   try {
@@ -86,7 +87,7 @@ router.post('/', upload.array('images', 10), async (req, res) => {
 });
 
 // Create connection between items
-router.post('/connections', async (req, res) => {
+router.post('/connections', authenticateToken, async (req, res) => {
   const { source_id, target_id } = req.body;
   
   if (!source_id || !target_id) {
@@ -102,7 +103,7 @@ router.post('/connections', async (req, res) => {
   }
 });
 
-router.post('/connections/to-group', async (req, res) => {
+router.post('/connections/to-group', authenticateToken, async (req, res) => {
   const { source_id, target_group_id } = req.body;
   
   if (!source_id || !target_group_id) {
@@ -122,7 +123,7 @@ router.post('/connections/to-group', async (req, res) => {
 });
 
 // Update item position
-router.put('/:id/position', async (req, res) => {
+router.put('/:id/position', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { position } = req.body;
 
@@ -140,7 +141,7 @@ router.put('/:id/position', async (req, res) => {
 });
 
 // Method update 
-router.put('/:id', upload.array('images', 10), async (req, res) => {
+router.put('/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
   const { id } = req.params;
   const { name, type, description, status, ip, category, location, existingImages, group_id, env_type } = req.body;
   
@@ -188,7 +189,7 @@ router.put('/:id', upload.array('images', 10), async (req, res) => {
 });
 
 // PATCH: Update item status
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   
@@ -206,7 +207,7 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 // PATCH: Update item group
-router.patch('/:id/group', async (req, res) => {
+router.patch('/:id/group', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { group_id, order_in_group } = req.body;
   
@@ -220,7 +221,7 @@ router.patch('/:id/group', async (req, res) => {
 });
 
 // PATCH: Reorder item within group - MUST BE BEFORE /:id route
-router.patch('/:id/reorder', async (req, res) => {
+router.patch('/:id/reorder', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { new_order } = req.body;
   
@@ -243,10 +244,10 @@ router.patch('/:id/reorder', async (req, res) => {
 });
 
 // Delete item (and its images)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    // Get item untuk mendapatkan path gambar
+    // Get item
     const itemResult = await cmdbModel.getItemById(id);
     const item = itemResult.rows[0];
     
@@ -270,7 +271,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Delete single image
-router.delete('/:id/images', async (req, res) => {
+router.delete('/:id/images', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { imagePath } = req.body;
   
@@ -309,7 +310,7 @@ router.delete('/:id/images', async (req, res) => {
 });
 
 // Delete connection
-router.delete('/connections/:sourceId/:targetId', async (req, res) => {
+router.delete('/connections/:sourceId/:targetId', authenticateToken, async (req, res) => {
   const { sourceId, targetId } = req.params;
   try {
     await connectionModel.deleteConnection(sourceId, targetId);
@@ -320,7 +321,7 @@ router.delete('/connections/:sourceId/:targetId', async (req, res) => {
   }
 });
 
-router.delete('/connections/to-group/:sourceId/:targetGroupId', async (req, res) => {
+router.delete('/connections/to-group/:sourceId/:targetGroupId', authenticateToken, async (req, res) => {
   const { sourceId, targetGroupId } = req.params;
   try {
     await pool.query(
@@ -334,7 +335,7 @@ router.delete('/connections/to-group/:sourceId/:targetGroupId', async (req, res)
   }
 });
 
-router.post('/connections/from-group', async (req, res) => {
+router.post('/connections/from-group', authenticateToken, async (req, res) => {
   const { source_group_id, target_id } = req.body;
   
   if (!source_group_id || !target_id) {
@@ -350,7 +351,7 @@ router.post('/connections/from-group', async (req, res) => {
   }
 });
 
-router.delete('/connections/from-group/:sourceGroupId/:targetId', async (req, res) => {
+router.delete('/connections/from-group/:sourceGroupId/:targetId', authenticateToken, async (req, res) => {
   const { sourceGroupId, targetId } = req.params;
   try {
     await connectionModel.deleteGroupToItemConnection(sourceGroupId, targetId);

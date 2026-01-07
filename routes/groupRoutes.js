@@ -4,9 +4,10 @@ const router = express.Router();
 const groupModel = require('../models/groupModel');
 const { emitCmdbUpdate } = require('../socket');
 const cmdbModel = require('../models/cmdbModel');
+const { authenticateToken } = require('../middleware/auth')
 
 // Get all groups
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const result = await groupModel.getAllGroups();
     res.json(result.rows);
@@ -16,7 +17,7 @@ router.get('/', async (req, res) => {
 });
 
 // Create new group
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   const { name, description, color, position } = req.body;
   try {
     const result = await groupModel.createGroup(name, description, color, position);
@@ -28,7 +29,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update group
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { name, description, color, position } = req.body;
   try {
@@ -41,7 +42,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete group
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     await groupModel.deleteGroup(id);
@@ -53,7 +54,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Update group position
-router.put('/:id/position', async (req, res) => {
+router.put('/:id/position', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { position } = req.body;
   try {
@@ -66,7 +67,7 @@ router.put('/:id/position', async (req, res) => {
 });
 
 // Get all group connections
-router.get('/connections', async (req, res) => {
+router.get('/connections', authenticateToken, async (req, res) => {
   try {
     const result = await groupModel.getAllGroupConnections();
     res.json(result.rows);
@@ -76,7 +77,7 @@ router.get('/connections', async (req, res) => {
 });
 
 // Create group connection
-router.post('/connections', async (req, res) => {
+router.post('/connections', authenticateToken, async (req, res) => {
   const { source_id, target_id } = req.body;
   try {
     const result = await groupModel.createGroupConnection(source_id, target_id);
@@ -88,7 +89,7 @@ router.post('/connections', async (req, res) => {
 });
 
 // Delete group connection
-router.delete('/connections/:sourceId/:targetId', async (req, res) => {
+router.delete('/connections/:sourceId/:targetId', authenticateToken, async (req, res) => {
   const { sourceId, targetId } = req.params;
   try {
     await groupModel.deleteGroupConnection(sourceId, targetId);

@@ -1,12 +1,12 @@
-// routes/edgeHandleRoutes.js
 const express = require('express');
 const router = express.Router();
 const edgeHandleModel = require('../models/edgeHandleModel');
 const { emitCmdbUpdate } = require('../socket');
 const cmdbModel = require('../models/cmdbModel');
+const { authenticateToken } = require('../middleware/auth');
 
 // Get all edge handles
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const result = await edgeHandleModel.getAllEdgeHandles();
     
@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
 });
 
 // Upsert single edge handle
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   const { edgeId, sourceHandle, targetHandle } = req.body;
   
   if (!edgeId || !sourceHandle || !targetHandle) {
@@ -49,7 +49,7 @@ router.post('/', async (req, res) => {
 });
 
 // Bulk upsert edge handles
-router.post('/bulk', async (req, res) => {
+router.post('/bulk', authenticateToken, async (req, res) => {
   const { edgeHandles } = req.body;
   
   if (!edgeHandles || typeof edgeHandles !== 'object') {
@@ -72,7 +72,7 @@ router.post('/bulk', async (req, res) => {
 });
 
 // Delete edge handle
-router.delete('/:edgeId', async (req, res) => {
+router.delete('/:edgeId', authenticateToken, async (req, res) => {
   const { edgeId } = req.params;
   
   try {
