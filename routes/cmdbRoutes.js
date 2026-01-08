@@ -125,7 +125,7 @@ router.post('/connections/to-group', authenticateToken, async (req, res) => {
 // Update item position
 router.put('/:id/position', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { position } = req.body;
+  const { position, skipEmit } = req.body; // ← TAMBAH skipEmit
 
   if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') {
     return res.status(400).json({ error: 'Invalid position format' });
@@ -133,7 +133,11 @@ router.put('/:id/position', authenticateToken, async (req, res) => {
 
   try {
     const result = await cmdbModel.updateItemPosition(id, position);
-    await emitCmdbUpdate(cmdbModel);
+    
+    if (!skipEmit) {
+      await emitCmdbUpdate(cmdbModel);
+    }
+    
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -357,6 +361,15 @@ router.delete('/connections/from-group/:sourceGroupId/:targetId', authenticateTo
     await connectionModel.deleteGroupToItemConnection(sourceGroupId, targetId);
     await emitCmdbUpdate(cmdbModel);
     res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/trigger-update', authenticateToken, async (req, res) => {
+  try {
+    await emitCmdbUpdate(cmdbModel);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

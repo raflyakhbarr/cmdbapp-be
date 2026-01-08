@@ -56,10 +56,15 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 // Update group position
 router.put('/:id/position', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { position } = req.body;
+  const { position, skipEmit } = req.body;
+  
   try {
     const result = await groupModel.updateGroupPosition(id, position);
-    await emitCmdbUpdate(cmdbModel);
+    
+    if (!skipEmit) {
+      await emitCmdbUpdate(cmdbModel);
+    }
+    
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
