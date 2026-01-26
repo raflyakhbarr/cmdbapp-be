@@ -1,13 +1,19 @@
 const pool = require('../db');
 
-const getAllGroups = () => pool.query('SELECT * FROM cmdb_groups');
+const getAllGroups = (workspaceId = null) => {
+  if (workspaceId) {
+    return pool.query('SELECT * FROM cmdb_groups WHERE workspace_id = $1', [workspaceId]);
+  }
+  return pool.query('SELECT * FROM cmdb_groups');
+};
 
 const getGroupById = (id) => pool.query('SELECT * FROM cmdb_groups WHERE id = $1', [id]);
 
-const createGroup = (name, description, color = '#e0e7ff', position = null) =>
+// TAMBAHKAN workspace_id
+const createGroup = (name, description, color = '#e0e7ff', position = null, workspaceId) =>
   pool.query(
-    'INSERT INTO cmdb_groups(name, description, color, position) VALUES($1, $2, $3, $4) RETURNING *',
-    [name, description, color, position]
+    'INSERT INTO cmdb_groups(name, description, color, position, workspace_id) VALUES($1, $2, $3, $4, $5) RETURNING *',
+    [name, description, color, position, workspaceId]
   );
 
 const updateGroup = (id, name, description, color, position) =>
@@ -24,13 +30,19 @@ const updateGroupPosition = (id, position) =>
     [JSON.stringify(position), id]
   );
 
-// Group connections
-const getAllGroupConnections = () => pool.query('SELECT * FROM group_connections');
+// Group connections - TAMBAHKAN FILTER workspace_id
+const getAllGroupConnections = (workspaceId = null) => {
+  if (workspaceId) {
+    return pool.query('SELECT * FROM group_connections WHERE workspace_id = $1', [workspaceId]);
+  }
+  return pool.query('SELECT * FROM group_connections');
+};
 
-const createGroupConnection = (sourceId, targetId) =>
+// TAMBAHKAN workspace_id
+const createGroupConnection = (sourceId, targetId, workspaceId) =>
   pool.query(
-    'INSERT INTO group_connections(source_id, target_id) VALUES($1, $2) RETURNING *',
-    [sourceId, targetId]
+    'INSERT INTO group_connections(source_id, target_id, workspace_id) VALUES($1, $2, $3) RETURNING *',
+    [sourceId, targetId, workspaceId]
   );
 
 const deleteGroupConnection = (sourceId, targetId) =>

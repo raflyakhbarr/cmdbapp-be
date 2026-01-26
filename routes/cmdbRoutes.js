@@ -10,20 +10,22 @@ const pool = require('../db');
 const { env } = require('process');
 const { authenticateToken } = require('../middleware/auth');
 
-// Get all items
 router.get('/', authenticateToken, async (req, res) => {
+  const { workspace_id } = req.query;
+  
   try {
-    const result = await cmdbModel.getAllItems();
+    const result = await cmdbModel.getAllItems(workspace_id || null);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Get all connections
 router.get('/connections', authenticateToken, async (req, res) => {
+  const { workspace_id } = req.query;
+  
   try {
-    const result = await connectionModel.getAllConnections();
+    const result = await connectionModel.getAllConnections(workspace_id || null);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -54,8 +56,12 @@ router.get('/:id/affected', authenticateToken, async (req, res) => {
 
 // Method post buat item
 router.post('/', authenticateToken, upload.array('images', 10), async (req, res) => {
-  const { name, type, description, status, ip, category, location, group_id, env_type, position } = req.body;
+  const { name, type, description, status, ip, category, location, group_id, env_type, position, workspace_id } = req.body;
   
+  if(!workspace_id) {
+    return res.status(400).json({ error: 'workspace_id is required' });
+  }
+
   try {
     // Get uploaded file paths
     const images = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
@@ -71,7 +77,8 @@ router.post('/', authenticateToken, upload.array('images', 10), async (req, res)
       images,
       group_id || null,
       env_type,
-      position ? JSON.parse(position) : null // Parse position jika ada
+      position ? JSON.parse(position) : null, // Parse position jika ada
+      workspace_id
     );
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
@@ -88,14 +95,18 @@ router.post('/', authenticateToken, upload.array('images', 10), async (req, res)
 
 // Create connection between items
 router.post('/connections', authenticateToken, async (req, res) => {
-  const { source_id, target_id } = req.body;
+  const { source_id, target_id, workspace_id } = req.body;
   
   if (!source_id || !target_id) {
     return res.status(400).json({ error: 'source_id and target_id are required' });
   }
   
+  if (!workspace_id) {
+    return res.status(400).json({ error: 'workspace_id is required' });
+  }
+  
   try {
-    const result = await connectionModel.createConnection(source_id, target_id);
+    const result = await connectionModel.createConnection(source_id, target_id, workspace_id);
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -104,17 +115,18 @@ router.post('/connections', authenticateToken, async (req, res) => {
 });
 
 router.post('/connections/to-group', authenticateToken, async (req, res) => {
-  const { source_id, target_group_id } = req.body;
+  const { source_id, target_group_id, workspace_id } = req.body;
   
   if (!source_id || !target_group_id) {
     return res.status(400).json({ error: 'source_id and target_group_id are required' });
   }
   
+  if (!workspace_id) {
+    return res.status(400).json({ error: 'workspace_id is required' });
+  }
+  
   try {
-    const result = await pool.query(
-      'INSERT INTO connections(source_id, target_group_id) VALUES($1, $2) RETURNING *',
-      [source_id, target_group_id]
-    );
+    const result = await connectionModel.createItemToGroupConnection(source_id, target_group_id, workspace_id);
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -340,14 +352,18 @@ router.delete('/connections/to-group/:sourceId/:targetGroupId', authenticateToke
 });
 
 router.post('/connections/from-group', authenticateToken, async (req, res) => {
-  const { source_group_id, target_id } = req.body;
+  const { source_group_id, target_id, workspace_id } = req.body;
   
   if (!source_group_id || !target_id) {
     return res.status(400).json({ error: 'source_group_id and target_id are required' });
   }
   
+  if (!workspace_id) {
+    return res.status(400).json({ error: 'workspace_id is required' });
+  }
+  
   try {
-    const result = await connectionModel.createGroupToItemConnection(source_group_id, target_id);
+    const result = await connectionModel.createGroupToItemConnection(source_group_id, target_id, workspace_id);
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {

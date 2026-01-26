@@ -1,20 +1,29 @@
 const pool = require('../db');
 
-const getAllItems = () => pool.query('SELECT * FROM cmdb_items ORDER BY group_id, order_in_group NULLS LAST');
+// Get all items by workspace
+const getAllItems = (workspaceId = null) => {
+  if (workspaceId) {
+    return pool.query(
+      'SELECT * FROM cmdb_items WHERE workspace_id = $1 ORDER BY group_id, order_in_group NULLS LAST',
+      [workspaceId]
+    );
+  }
+  return pool.query('SELECT * FROM cmdb_items ORDER BY group_id, order_in_group NULLS LAST');
+};
 
 const getItemById = (id) => pool.query('SELECT * FROM cmdb_items WHERE id = $1', [id]);
 
-const createItem = (name, type, description, status = 'active', ip, category, location, images = [], group_id, env_type, position = null) =>
+const createItem = (name, type, description, status = 'active', ip, category, location, images = [], group_id, env_type, position = null, workspace_id) =>
   pool.query(
     `INSERT INTO cmdb_items(
-        name, type, description, status, ip, category, location, images, group_id, order_in_group, env_type, position
+        name, type, description, status, ip, category, location, images, group_id, order_in_group, env_type, position, workspace_id
      ) 
      VALUES(
         $1, $2, $3, $4, $5, $6, $7, $8, $9,
-        COALESCE((SELECT MAX(order_in_group) + 1 FROM cmdb_items WHERE group_id = $9), 0),
-        $10, $11
+        COALESCE((SELECT MAX(order_in_group) + 1 FROM cmdb_items WHERE group_id = $9 AND workspace_id = $12), 0),
+        $10, $11, $12
      ) RETURNING *`,
-    [name, type, description, status, ip, category, location, JSON.stringify(images), group_id, env_type, position ? JSON.stringify(position) : null]
+    [name, type, description, status, ip, category, location, JSON.stringify(images), group_id, env_type, position ? JSON.stringify(position) : null, workspace_id]
   );
 
 const updateItem = (id, name, type, description, status, ip, category, location, images = [], group_id, env_type) =>
@@ -46,26 +55,6 @@ const updateItemStatus = async (id, status) => {
       [status, id]
     );
     
-    // if (status !== 'active') {
-    //   const affected = await client.query(
-    //     `WITH RECURSIVE affected AS (
-    //       SELECT target_id as item_id
-    //       FROM connections
-    //       WHERE source_id = $1
-          
-    //       UNION
-          
-    //       SELECT c.target_id
-    //       FROM connections c
-    //       INNER JOIN affected a ON c.source_id = a.item_id
-    //     )
-    //     UPDATE cmdb_items
-    //     SET status = $2
-    //     WHERE id IN (SELECT item_id FROM affected)`,
-    //     [id, status]
-    //   );
-    // }
-    
     await client.query('COMMIT');
     return result;
   } catch (err) {
@@ -82,17 +71,18 @@ const updateItemGroup = async (id, groupId, orderInGroup = null) => {
     await client.query('BEGIN');
     
     // Get current item info
-    const currentItem = await client.query('SELECT group_id, order_in_group FROM cmdb_items WHERE id = $1', [id]);
+    const currentItem = await client.query('SELECT group_id, order_in_group, workspace_id FROM cmdb_items WHERE id = $1', [id]);
     const oldGroupId = currentItem.rows[0]?.group_id;
     const oldOrder = currentItem.rows[0]?.order_in_group;
+    const workspaceId = currentItem.rows[0]?.workspace_id;
     
     // If moving from one group to another or removing from group
     if (oldGroupId !== groupId) {
       // Reorder items in old group (close the gap)
       if (oldGroupId) {
         await client.query(
-          'UPDATE cmdb_items SET order_in_group = order_in_group - 1 WHERE group_id = $1 AND order_in_group > $2',
-          [oldGroupId, oldOrder]
+          'UPDATE cmdb_items SET order_in_group = order_in_group - 1 WHERE group_id = $1 AND order_in_group > $2 AND workspace_id = $3',
+          [oldGroupId, oldOrder, workspaceId]
         );
       }
       
@@ -101,14 +91,14 @@ const updateItemGroup = async (id, groupId, orderInGroup = null) => {
         if (orderInGroup !== null) {
           // Insert at specific position - shift others down
           await client.query(
-            'UPDATE cmdb_items SET order_in_group = order_in_group + 1 WHERE group_id = $1 AND order_in_group >= $2',
-            [groupId, orderInGroup]
+            'UPDATE cmdb_items SET order_in_group = order_in_group + 1 WHERE group_id = $1 AND order_in_group >= $2 AND workspace_id = $3',
+            [groupId, orderInGroup, workspaceId]
           );
         } else {
           // Add at the end
           const maxOrder = await client.query(
-            'SELECT COALESCE(MAX(order_in_group), -1) as max FROM cmdb_items WHERE group_id = $1',
-            [groupId]
+            'SELECT COALESCE(MAX(order_in_group), -1) as max FROM cmdb_items WHERE group_id = $1 AND workspace_id = $2',
+            [groupId, workspaceId]
           );
           orderInGroup = maxOrder.rows[0].max + 1;
         }
@@ -140,7 +130,7 @@ const reorderItemInGroup = async (itemId, newOrder) => {
     
     // Get item info
     const item = await client.query(
-      'SELECT group_id, order_in_group FROM cmdb_items WHERE id = $1',
+      'SELECT group_id, order_in_group, workspace_id FROM cmdb_items WHERE id = $1',
       [itemId]
     );
     
@@ -154,6 +144,7 @@ const reorderItemInGroup = async (itemId, newOrder) => {
     
     const groupId = item.rows[0].group_id;
     const oldOrder = item.rows[0].order_in_group || 0;
+    const workspaceId = item.rows[0].workspace_id;
     
     console.log(`Reordering item ${itemId} in group ${groupId}: ${oldOrder} -> ${newOrder}`);
     
@@ -165,14 +156,14 @@ const reorderItemInGroup = async (itemId, newOrder) => {
     if (oldOrder < newOrder) {
       // Moving down: shift items up
       await client.query(
-        'UPDATE cmdb_items SET order_in_group = order_in_group - 1 WHERE group_id = $1 AND order_in_group > $2 AND order_in_group <= $3',
-        [groupId, oldOrder, newOrder]
+        'UPDATE cmdb_items SET order_in_group = order_in_group - 1 WHERE group_id = $1 AND order_in_group > $2 AND order_in_group <= $3 AND workspace_id = $4',
+        [groupId, oldOrder, newOrder, workspaceId]
       );
     } else {
       // Moving up: shift items down
       await client.query(
-        'UPDATE cmdb_items SET order_in_group = order_in_group + 1 WHERE group_id = $1 AND order_in_group >= $2 AND order_in_group < $3',
-        [groupId, newOrder, oldOrder]
+        'UPDATE cmdb_items SET order_in_group = order_in_group + 1 WHERE group_id = $1 AND order_in_group >= $2 AND order_in_group < $3 AND workspace_id = $4',
+        [groupId, newOrder, oldOrder, workspaceId]
       );
     }
     

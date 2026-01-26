@@ -8,8 +8,10 @@ const { authenticateToken } = require('../middleware/auth')
 
 // Get all groups
 router.get('/', authenticateToken, async (req, res) => {
+  const { workspace_id } = req.query;
+  
   try {
-    const result = await groupModel.getAllGroups();
+    const result = await groupModel.getAllGroups(workspace_id || null);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -18,9 +20,14 @@ router.get('/', authenticateToken, async (req, res) => {
 
 // Create new group
 router.post('/', authenticateToken, async (req, res) => {
-  const { name, description, color, position } = req.body;
+  const { name, description, color, position, workspace_id } = req.body;
+  
+  if (!workspace_id) {
+    return res.status(400).json({ error: 'workspace_id is required' });
+  }
+  
   try {
-    const result = await groupModel.createGroup(name, description, color, position);
+    const result = await groupModel.createGroup(name, description, color, position, workspace_id);
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -73,8 +80,10 @@ router.put('/:id/position', authenticateToken, async (req, res) => {
 
 // Get all group connections
 router.get('/connections', authenticateToken, async (req, res) => {
+  const { workspace_id } = req.query;
+  
   try {
-    const result = await groupModel.getAllGroupConnections();
+    const result = await groupModel.getAllGroupConnections(workspace_id || null);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -83,9 +92,14 @@ router.get('/connections', authenticateToken, async (req, res) => {
 
 // Create group connection
 router.post('/connections', authenticateToken, async (req, res) => {
-  const { source_id, target_id } = req.body;
+  const { source_id, target_id, workspace_id } = req.body;
+  
+  if (!workspace_id) {
+    return res.status(400).json({ error: 'workspace_id is required' });
+  }
+  
   try {
-    const result = await groupModel.createGroupConnection(source_id, target_id);
+    const result = await groupModel.createGroupConnection(source_id, target_id, workspace_id);
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {

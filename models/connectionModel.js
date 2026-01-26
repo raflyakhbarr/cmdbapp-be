@@ -1,7 +1,12 @@
-//connectionModel.js
 const pool = require('../db');
 
-const getAllConnections = () => pool.query('SELECT * FROM connections');
+// TAMBAHKAN PARAMETER workspace_id
+const getAllConnections = (workspaceId = null) => {
+  if (workspaceId) {
+    return pool.query('SELECT * FROM connections WHERE workspace_id = $1', [workspaceId]);
+  }
+  return pool.query('SELECT * FROM connections');
+};
 
 // Get connections for a specific item (both as source and target)
 const getConnectionsByItemId = (itemId) => pool.query(
@@ -25,11 +30,11 @@ const getDependencies = (itemId) => pool.query(
   [itemId]
 );
 
-// Create a new connection
-const createConnection = (sourceId, targetId) =>
+// Create a new connection - TAMBAHKAN workspace_id
+const createConnection = (sourceId, targetId, workspaceId) =>
   pool.query(
-    'INSERT INTO connections(source_id, target_id) VALUES($1, $2) RETURNING *',
-    [sourceId, targetId]
+    'INSERT INTO connections(source_id, target_id, workspace_id) VALUES($1, $2, $3) RETURNING *',
+    [sourceId, targetId, workspaceId]
   );
 
 // Delete a connection
@@ -70,10 +75,11 @@ const getAffectedItems = async (itemId) => {
   return result;
 };
 
-const createItemToGroupConnection = (itemId, groupId) =>
+// TAMBAHKAN workspace_id
+const createItemToGroupConnection = (itemId, groupId, workspaceId) =>
   pool.query(
-    'INSERT INTO connections(source_id, target_group_id) VALUES($1, $2) RETURNING *',
-    [itemId, groupId]
+    'INSERT INTO connections(source_id, target_group_id, workspace_id) VALUES($1, $2, $3) RETURNING *',
+    [itemId, groupId, workspaceId]
   );
 
 const deleteItemToGroupConnection = (itemId, groupId) =>
@@ -87,10 +93,11 @@ const getConnectionsWithGroups = (itemId) => pool.query(
   [itemId]
 );
 
-const createGroupToItemConnection = (groupId, itemId) =>
+// TAMBAHKAN workspace_id
+const createGroupToItemConnection = (groupId, itemId, workspaceId) =>
   pool.query(
-    'INSERT INTO connections(source_group_id, target_id) VALUES($1, $2) RETURNING *',
-    [groupId, itemId]
+    'INSERT INTO connections(source_group_id, target_id, workspace_id) VALUES($1, $2, $3) RETURNING *',
+    [groupId, itemId, workspaceId]
   );
 
 const deleteGroupToItemConnection = (groupId, itemId) =>
@@ -98,8 +105,6 @@ const deleteGroupToItemConnection = (groupId, itemId) =>
     'DELETE FROM connections WHERE source_group_id = $1 AND target_id = $2',
     [groupId, itemId]
   );
-
-
 
 module.exports = {
   getAllConnections,
