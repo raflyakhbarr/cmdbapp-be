@@ -2,10 +2,7 @@ const express = require('express');
 const router = express.Router();
 const cmdbModel = require('../models/cmdbModel');
 const connectionModel = require('../models/connectionModel');
-const { emitCmdbUpdate } = require('../socket'); 
-const upload = require('../config/upload');
-const fs = require('fs');
-const path = require('path');
+const { emitCmdbUpdate } = require('../socket');
 const pool = require('../db');
 const { env } = require('process');
 const { authenticateToken } = require('../middleware/auth');
@@ -55,40 +52,30 @@ router.get('/:id/affected', authenticateToken, async (req, res) => {
 });
 
 // Method post buat item
-router.post('/', authenticateToken, upload.array('images', 10), async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   const { name, type, description, status, ip, category, location, group_id, env_type, position, workspace_id } = req.body;
-  
+
   if(!workspace_id) {
     return res.status(400).json({ error: 'workspace_id is required' });
   }
 
   try {
-    // Get uploaded file paths
-    const images = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
-    
     const result = await cmdbModel.createItem(
-      name, 
-      type, 
-      description, 
-      status || 'active', 
-      ip, 
-      category, 
-      location, 
-      images,
+      name,
+      type,
+      description,
+      status || 'active',
+      ip,
+      category,
+      location,
       group_id || null,
       env_type,
-      position ? JSON.parse(position) : null, // Parse position jika ada
+      position ? JSON.parse(position) : null,
       workspace_id
     );
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    // Hapus file yang sudah diupload jika terjadi error
-    if (req.files) {
-      req.files.forEach(file => {
-        fs.unlinkSync(file.path);
-      });
-    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -157,49 +144,30 @@ router.put('/:id/position', authenticateToken, async (req, res) => {
 });
 
 // Method update 
-router.put('/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { name, type, description, status, ip, category, location, existingImages, group_id, env_type } = req.body;
-  
+  const { name, type, description, status, ip, category, location, group_id, env_type } = req.body;
+
   try {
-    // Parse existing images
-    let images = [];
-    if (existingImages) {
-      images = JSON.parse(existingImages);
-    }
-    
-    // Add new uploaded images
-    if (req.files && req.files.length > 0) {
-      const newImages = req.files.map(file => `/uploads/${file.filename}`);
-      images = [...images, ...newImages];
-    }
-    
     if (status) {
       await cmdbModel.updateItemStatus(id, status);
     }
-    
+
     const result = await cmdbModel.updateItem(
-      id, 
-      name, 
-      type, 
-      description, 
-      status || 'active', 
-      ip, 
-      category, 
-      location, 
-      images,
+      id,
+      name,
+      type,
+      description,
+      status || 'active',
+      ip,
+      category,
+      location,
       group_id || null,
       env_type,
     );
     await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
   } catch (err) {
-    // Hapus file yang sudah diupload jika terjadi error
-    if (req.files) {
-      req.files.forEach(file => {
-        fs.unlinkSync(file.path);
-      });
-    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -259,67 +227,13 @@ router.patch('/:id/reorder', authenticateToken, async (req, res) => {
   }
 });
 
-// Delete item (and its images)
+// Delete item
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    // Get item
-    const itemResult = await cmdbModel.getItemById(id);
-    const item = itemResult.rows[0];
-    
-    // Hapus file gambar
-    if (item && item.images) {
-      const images = typeof item.images === 'string' ? JSON.parse(item.images) : item.images;
-      images.forEach(imagePath => {
-        const fullPath = path.join(__dirname, '..', imagePath);
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-        }
-      });
-    }
-    
     await cmdbModel.deleteItem(id);
     await emitCmdbUpdate(cmdbModel);
     res.status(204).send();
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Delete single image
-router.delete('/:id/images', authenticateToken, async (req, res) => {
-  const { id } = req.params;
-  const { imagePath } = req.body;
-  
-  try {
-    // Get item
-    const itemResult = await cmdbModel.getItemById(id);
-    const item = itemResult.rows[0];
-    
-    if (!item) {
-      return res.status(404).json({ error: 'Item tidak ditemukan' });
-    }
-    
-    // Parse images
-    let images = typeof item.images === 'string' ? JSON.parse(item.images) : item.images || [];
-    
-    // Remove image from array
-    images = images.filter(img => img !== imagePath);
-    
-    // Delete physical file
-    const fullPath = path.join(__dirname, '..', imagePath);
-    if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
-    }
-    
-    // Update database
-    const result = await cmdbModel.updateItem(
-      id, item.name, item.type, item.description, item.status, 
-      item.ip, item.category, item.location, images
-    );
-    
-    await emitCmdbUpdate(cmdbModel);
-    res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
