@@ -10,6 +10,14 @@ const getServicesByItemId = (itemId) => {
   );
 };
 
+// Get a specific service by ID
+const getServiceById = (id) => {
+  return pool.query(
+    'SELECT * FROM services WHERE id = $1',
+    [id]
+  );
+};
+
 // Create a new service
 const createService = (cmdbItemId, name, status = 'active', iconType = 'preset', iconPath = null, iconName = null, description = null) => {
   return pool.query(
@@ -148,6 +156,7 @@ const deleteServiceConnectionsByItemId = (itemId) => {
 module.exports = {
   // Services
   getServicesByItemId,
+  getServiceById,
   createService,
   updateService,
   updateServiceIcon,

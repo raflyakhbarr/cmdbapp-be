@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const pool = require('../db');
 const serviceModel = require('../models/serviceModel');
 const { emitCmdbUpdate } = require('../socket');
 const upload = require('../config/upload');
@@ -66,7 +67,7 @@ router.post('/:id/upload-icon', authenticateToken, upload.single('icon'), async 
     const iconPath = `/uploads/${req.file.filename}`;
 
     // Delete old icon if it was an uploaded file
-    const existingService = await serviceModel.getServicesByItemId(id);
+    const existingService = await serviceModel.getServiceById(id);
     if (existingService.rows.length > 0) {
       const service = existingService.rows[0];
       if (service.icon_path) {
@@ -119,21 +120,27 @@ router.put('/:id/icon', authenticateToken, upload.single('icon'), async (req, re
   try {
     let iconPath = null;
 
+    // Get existing service to preserve icon if needed
+    const existingServiceResult = await pool.query('SELECT * FROM services WHERE id = $1', [id]);
+    if (existingServiceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    const existingService = existingServiceResult.rows[0];
+
     // Handle uploaded icon
     if (req.file && icon_type === 'upload') {
       iconPath = `/uploads/${req.file.filename}`;
 
       // Delete old icon if it was an uploaded file
-      const existingService = await serviceModel.getServicesByItemId(id);
-      if (existingService.rows.length > 0) {
-        const oldIcon = existingService.rows[0].icon_path;
-        if (oldIcon) {
-          const fullPath = path.join(__dirname, '..', oldIcon);
-          if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-          }
+      if (existingService.icon_path) {
+        const fullPath = path.join(__dirname, '..', existingService.icon_path);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
         }
       }
+    } else if (icon_type === 'upload' && !req.file) {
+      // Keep existing icon path if no new file uploaded
+      iconPath = existingService.icon_path;
     }
 
     const result = await serviceModel.updateServiceIcon(id, icon_type, iconPath, icon_name);
@@ -154,7 +161,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 
   try {
     // Delete service icon if it was an uploaded file
-    const existingService = await serviceModel.getServicesByItemId(id);
+    const existingService = await serviceModel.getServiceById(id);
     if (existingService.rows.length > 0) {
       const iconPath = existingService.rows[0].icon_path;
       if (iconPath) {
