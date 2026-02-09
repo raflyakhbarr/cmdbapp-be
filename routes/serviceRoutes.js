@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const serviceModel = require('../models/serviceModel');
+const cmdbModel = require('../models/cmdbModel');
 const { emitCmdbUpdate } = require('../socket');
 const upload = require('../config/upload');
 const fs = require('fs');
@@ -48,7 +49,7 @@ router.post('/', authenticateToken, async (req, res) => {
       description
     );
 
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -79,7 +80,7 @@ router.post('/:id/upload-icon', authenticateToken, upload.single('icon'), async 
     }
 
     const result = await serviceModel.updateServiceIcon(id, 'upload', iconPath, null);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
   } catch (err) {
     // Delete uploaded file if error
@@ -101,7 +102,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
   try {
     const result = await serviceModel.updateService(id, name, status, description);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -144,7 +145,7 @@ router.put('/:id/icon', authenticateToken, upload.single('icon'), async (req, re
     }
 
     const result = await serviceModel.updateServiceIcon(id, icon_type, iconPath, icon_name);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
   } catch (err) {
     // Delete uploaded file if error
@@ -173,7 +174,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 
     await serviceModel.deleteService(id);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -222,7 +223,7 @@ router.post('/:serviceId/items', authenticateToken, async (req, res) => {
       workspace_id
     );
 
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -240,7 +241,7 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
 
   try {
     const result = await serviceModel.updateServiceItem(id, name, type, description, status, ip, category, location);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -271,7 +272,7 @@ router.delete('/items/:id', authenticateToken, async (req, res) => {
   try {
     await serviceModel.deleteServiceConnectionsByItemId(id);
     await serviceModel.deleteServiceItem(id);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -308,7 +309,7 @@ router.post('/:serviceId/connections', authenticateToken, async (req, res) => {
 
   try {
     const result = await serviceModel.createServiceConnection(serviceId, source_id, target_id, workspace_id);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -321,7 +322,7 @@ router.delete('/:serviceId/connections/:sourceId/:targetId', authenticateToken, 
 
   try {
     await serviceModel.deleteServiceConnection(serviceId, sourceId, targetId);
-    await emitCmdbUpdate();
+    await emitCmdbUpdate(cmdbModel);
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message });
