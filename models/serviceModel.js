@@ -73,12 +73,22 @@ const getServiceItemById = (id) => {
 };
 
 // Create a new service item
-const createServiceItem = (serviceId, name, type, description, position, status, ip, category, location, workspaceId, groupId = null) => {
+const createServiceItem = async (serviceId, name, type, description, position, status, ip, category, location, workspaceId, groupId = null) => {
+  // Calculate order_in_group if adding to a group
+  let orderInGroup = null;
+  if (groupId) {
+    const maxOrderResult = await pool.query(
+      'SELECT COALESCE(MAX(order_in_group), -1) as max FROM service_items WHERE group_id = $1 AND service_id = $2 AND workspace_id = $3',
+      [groupId, serviceId, workspaceId]
+    );
+    orderInGroup = maxOrderResult.rows[0].max + 1;
+  }
+
   return pool.query(
     `INSERT INTO service_items (
-      service_id, name, type, description, position, status, ip, category, location, workspace_id, group_id
+      service_id, name, type, description, position, status, ip, category, location, workspace_id, group_id, order_in_group
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING *`,
     [
       serviceId,
@@ -91,7 +101,8 @@ const createServiceItem = (serviceId, name, type, description, position, status,
       category,
       location,
       workspaceId,
-      groupId
+      groupId,
+      orderInGroup
     ]
   );
 };
