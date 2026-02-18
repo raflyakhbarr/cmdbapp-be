@@ -203,7 +203,7 @@ router.get('/:serviceId/items', authenticateToken, async (req, res) => {
 // Create a new service item
 router.post('/:serviceId/items', authenticateToken, async (req, res) => {
   const { serviceId } = req.params;
-  const { name, type, description, position, status, ip, category, location, workspace_id } = req.body;
+  const { name, type, description, position, status, ip, category, location, workspace_id, group_id } = req.body;
 
   if (!name || !workspace_id) {
     return res.status(400).json({ error: 'name and workspace_id are required' });
@@ -220,7 +220,8 @@ router.post('/:serviceId/items', authenticateToken, async (req, res) => {
       ip,
       category,
       location,
-      workspace_id
+      workspace_id,
+      group_id
     );
 
     await emitCmdbUpdate(cmdbModel);
@@ -233,14 +234,14 @@ router.post('/:serviceId/items', authenticateToken, async (req, res) => {
 // Update service item
 router.put('/items/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { name, type, description, status, ip, category, location } = req.body;
+  const { name, type, description, status, ip, category, location, group_id } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: 'name is required' });
   }
 
   try {
-    const result = await serviceModel.updateServiceItem(id, name, type, description, status, ip, category, location);
+    const result = await serviceModel.updateServiceItem(id, name, type, description, status, ip, category, location, group_id);
     await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
   } catch (err) {

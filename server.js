@@ -35,6 +35,7 @@ const edgeHandleRoutes = require('./routes/edgeHandleRoutes');
 const workspaceRoutes = require('./routes/workspaceRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
 const serviceEdgeHandleRoutes = require('./routes/serviceEdgeHandleRoutes');
+const serviceGroupRoutes = require('./routes/serviceGroupRoutes');
 
 app.use('/api/cmdb', cmdbRoutes);
 app.use('/api/groups', groupRoutes);
@@ -44,6 +45,7 @@ app.use('/api/services', serviceRoutes);
 app.use('/api/service-items', serviceRoutes);
 app.use('/api/service-connections', serviceRoutes);
 app.use('/api/service-edge-handles', serviceEdgeHandleRoutes);
+app.use('/api/service-groups', serviceGroupRoutes);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

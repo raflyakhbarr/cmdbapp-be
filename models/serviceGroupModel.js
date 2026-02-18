@@ -1,0 +1,249 @@
+const pool = require('../db');
+
+// ==================== SERVICE GROUPS CRUD ====================
+
+// Get all service groups for a specific service
+const getAllServiceGroups = (serviceId, workspaceId) => {
+  return pool.query(
+    'SELECT * FROM service_groups WHERE service_id = $1 AND workspace_id = $2 ORDER BY created_at',
+    [serviceId, workspaceId]
+  );
+};
+
+// Get service group by ID
+const getServiceGroupById = (id) => {
+  return pool.query('SELECT * FROM service_groups WHERE id = $1', [id]);
+};
+
+// Create a new service group
+const createServiceGroup = (serviceId, name, description, color, position, workspaceId) => {
+  return pool.query(
+    `INSERT INTO service_groups(service_id, name, description, color, position, workspace_id)
+     VALUES($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [serviceId, name, description, color || '#e0e7ff', position ? JSON.stringify(position) : null, workspaceId]
+  );
+};
+
+// Update service group
+const updateServiceGroup = (id, name, description, color, position) => {
+  return pool.query(
+    `UPDATE service_groups
+     SET name = $1, description = $2, color = $3, position = $4
+     WHERE id = $5
+     RETURNING *`,
+    [name, description, color, position ? JSON.stringify(position) : null, id]
+  );
+};
+
+// Delete service group
+const deleteServiceGroup = (id) => {
+  return pool.query('DELETE FROM service_groups WHERE id = $1 RETURNING *', [id]);
+};
+
+// Update service group position
+const updateServiceGroupPosition = (id, position) => {
+  return pool.query(
+    'UPDATE service_groups SET position = $1 WHERE id = $2 RETURNING *',
+    [JSON.stringify(position), id]
+  );
+};
+
+// ==================== SERVICE GROUP CONNECTIONS ====================
+
+// Get all service group connections for a specific service
+const getAllServiceGroupConnections = (serviceId, workspaceId) => {
+  return pool.query(
+    'SELECT * FROM service_group_connections WHERE service_id = $1 AND workspace_id = $2 ORDER BY created_at',
+    [serviceId, workspaceId]
+  );
+};
+
+// Create a new service group connection (group-to-group)
+const createServiceGroupConnection = (serviceId, sourceId, targetId, workspaceId) => {
+  return pool.query(
+    `INSERT INTO service_group_connections(service_id, source_id, target_id, workspace_id)
+     VALUES($1, $2, $3, $4)
+     ON CONFLICT (service_id, source_id, target_id) DO NOTHING
+     RETURNING *`,
+    [serviceId, sourceId, targetId, workspaceId]
+  );
+};
+
+// Create a connection from group to item
+const createServiceGroupToItemConnection = (serviceId, sourceGroupId, targetItemId, workspaceId) => {
+  return pool.query(
+    `INSERT INTO service_group_connections(service_id, source_group_id, target_id, workspace_id)
+     VALUES($1, $2, $3, $4)
+     ON CONFLICT (service_id, source_group_id, target_id) DO NOTHING
+     RETURNING *`,
+    [serviceId, sourceGroupId, targetItemId, workspaceId]
+  );
+};
+
+// Delete service group connection
+const deleteServiceGroupConnection = (serviceId, sourceId, targetId) => {
+  return pool.query(
+    'DELETE FROM service_group_connections WHERE service_id = $1 AND source_id = $2 AND target_id = $3 RETURNING *',
+    [serviceId, sourceId, targetId]
+  );
+};
+
+// Delete service group to item connection
+const deleteServiceGroupToItemConnection = (serviceId, sourceGroupId, targetId) => {
+  return pool.query(
+    'DELETE FROM service_group_connections WHERE service_id = $1 AND source_group_id = $2 AND target_id = $3 RETURNING *',
+    [serviceId, sourceGroupId, targetId]
+  );
+};
+
+// ==================== SERVICE ITEM GROUP ASSIGNMENT ====================
+
+// Update service item group assignment
+const updateServiceItemGroup = async (id, groupId, orderInGroup = null) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get current item info
+    const currentItem = await client.query(
+      'SELECT group_id, order_in_group, service_id, workspace_id FROM service_items WHERE id = $1',
+      [id]
+    );
+
+    if (currentItem.rows.length === 0) {
+      throw new Error('Service item not found');
+    }
+
+    const oldGroupId = currentItem.rows[0].group_id;
+    const oldOrder = currentItem.rows[0].order_in_group;
+    const serviceId = currentItem.rows[0].service_id;
+    const workspaceId = currentItem.rows[0].workspace_id;
+
+    // If moving from one group to another or removing from group
+    if (oldGroupId !== groupId) {
+      // Reorder items in old group (close the gap)
+      if (oldGroupId) {
+        await client.query(
+          'UPDATE service_items SET order_in_group = order_in_group - 1 WHERE group_id = $1 AND order_in_group > $2 AND service_id = $3 AND workspace_id = $4',
+          [oldGroupId, oldOrder, serviceId, workspaceId]
+        );
+      }
+
+      // Set order in new group
+      if (groupId) {
+        if (orderInGroup !== null) {
+          // Insert at specific position - shift others down
+          await client.query(
+            'UPDATE service_items SET order_in_group = order_in_group + 1 WHERE group_id = $1 AND order_in_group >= $2 AND service_id = $3 AND workspace_id = $4',
+            [groupId, orderInGroup, serviceId, workspaceId]
+          );
+        } else {
+          // Add at the end
+          const maxOrder = await client.query(
+            'SELECT COALESCE(MAX(order_in_group), -1) as max FROM service_items WHERE group_id = $1 AND service_id = $2 AND workspace_id = $3',
+            [groupId, serviceId, workspaceId]
+          );
+          orderInGroup = maxOrder.rows[0].max + 1;
+        }
+      } else {
+        orderInGroup = null;
+      }
+    }
+
+    // Update the item
+    const result = await client.query(
+      'UPDATE service_items SET group_id = $1, order_in_group = $2 WHERE id = $3 RETURNING *',
+      [groupId, orderInGroup, id]
+    );
+
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+// Reorder service item within group
+const reorderServiceItemInGroup = async (itemId, newOrder) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get item info
+    const item = await client.query(
+      'SELECT group_id, order_in_group, service_id, workspace_id FROM service_items WHERE id = $1',
+      [itemId]
+    );
+
+    if (!item.rows[0]) {
+      throw new Error('Service item not found');
+    }
+
+    if (!item.rows[0].group_id) {
+      throw new Error('Service item not in a group');
+    }
+
+    const groupId = item.rows[0].group_id;
+    const oldOrder = item.rows[0].order_in_group || 0;
+    const serviceId = item.rows[0].service_id;
+    const workspaceId = item.rows[0].workspace_id;
+
+    if (oldOrder === newOrder) {
+      await client.query('COMMIT');
+      return item;
+    }
+
+    if (oldOrder < newOrder) {
+      // Moving down: shift items up
+      await client.query(
+        'UPDATE service_items SET order_in_group = order_in_group - 1 WHERE group_id = $1 AND order_in_group > $2 AND order_in_group <= $3 AND service_id = $4 AND workspace_id = $5',
+        [groupId, oldOrder, newOrder, serviceId, workspaceId]
+      );
+    } else {
+      // Moving up: shift items down
+      await client.query(
+        'UPDATE service_items SET order_in_group = order_in_group + 1 WHERE group_id = $1 AND order_in_group >= $2 AND order_in_group < $3 AND service_id = $4 AND workspace_id = $5',
+        [groupId, newOrder, oldOrder, serviceId, workspaceId]
+      );
+    }
+
+    // Update the item's order
+    const result = await client.query(
+      'UPDATE service_items SET order_in_group = $1 WHERE id = $2 RETURNING *',
+      [newOrder, itemId]
+    );
+
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+module.exports = {
+  // Service Groups
+  getAllServiceGroups,
+  getServiceGroupById,
+  createServiceGroup,
+  updateServiceGroup,
+  deleteServiceGroup,
+  updateServiceGroupPosition,
+
+  // Service Group Connections
+  getAllServiceGroupConnections,
+  createServiceGroupConnection,
+  createServiceGroupToItemConnection,
+  deleteServiceGroupConnection,
+  deleteServiceGroupToItemConnection,
+
+  // Service Item Group Assignment
+  updateServiceItemGroup,
+  reorderServiceItemInGroup,
+};

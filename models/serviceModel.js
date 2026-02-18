@@ -73,12 +73,12 @@ const getServiceItemById = (id) => {
 };
 
 // Create a new service item
-const createServiceItem = (serviceId, name, type, description, position, status, ip, category, location, workspaceId) => {
+const createServiceItem = (serviceId, name, type, description, position, status, ip, category, location, workspaceId, groupId = null) => {
   return pool.query(
     `INSERT INTO service_items (
-      service_id, name, type, description, position, status, ip, category, location, workspace_id
+      service_id, name, type, description, position, status, ip, category, location, workspace_id, group_id
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     RETURNING *`,
     [
       serviceId,
@@ -90,19 +90,20 @@ const createServiceItem = (serviceId, name, type, description, position, status,
       ip,
       category,
       location,
-      workspaceId
+      workspaceId,
+      groupId
     ]
   );
 };
 
 // Update service item
-const updateServiceItem = (id, name, type, description, status, ip, category, location) => {
+const updateServiceItem = (id, name, type, description, status, ip, category, location, groupId = null) => {
   return pool.query(
     `UPDATE service_items
-     SET name = $1, type = $2, description = $3, status = $4, ip = $5, category = $6, location = $7, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $8
+     SET name = $1, type = $2, description = $3, status = $4, ip = $5, category = $6, location = $7, group_id = $8, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $9
      RETURNING *`,
-    [name, type, description, status, ip, category, location, id]
+    [name, type, description, status, ip, category, location, groupId, id]
   );
 };
 
