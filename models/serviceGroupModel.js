@@ -99,6 +99,27 @@ const deleteServiceGroupToItemConnection = (serviceId, sourceGroupId, targetItem
   );
 };
 
+// Buat koneksi item-to-group: source_item_id → target_group_id
+const createItemToGroupConnection = (serviceId, sourceId, targetGroupId, workspaceId) => {
+  return pool.query(
+    `INSERT INTO service_group_connections(service_id, source_id, target_group_id, workspace_id)
+     VALUES($1, $2, $3, $4)
+     ON CONFLICT DO NOTHING
+     RETURNING *`,
+    [serviceId, sourceId, targetGroupId, workspaceId]
+  );
+};
+
+// Hapus koneksi item-to-group
+const deleteItemToGroupConnection = (serviceId, sourceId, targetGroupId) => {
+  return pool.query(
+    `DELETE FROM service_group_connections
+     WHERE service_id = $1 AND source_id = $2 AND target_group_id = $3
+     RETURNING *`,
+    [serviceId, sourceId, targetGroupId]
+  );
+};
+
 // ==================== SERVICE ITEM GROUP ASSIGNMENT ====================
 
 const updateServiceItemGroup = async (id, groupId, orderInGroup = null) => {
@@ -221,8 +242,10 @@ module.exports = {
   getAllServiceGroupConnections,
   createServiceGroupConnection,
   createServiceGroupToItemConnection,
+  createItemToGroupConnection,
   deleteServiceGroupConnection,
   deleteServiceGroupToItemConnection,
+  deleteItemToGroupConnection,
   updateServiceItemGroup,
   reorderServiceItemInGroup,
 };

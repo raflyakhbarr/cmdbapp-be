@@ -141,6 +141,35 @@ router.delete('/connections/to-item/:serviceId/:sourceGroupId/:targetItemId', au
   }
 });
 
+// Item-to-group connection
+router.post('/connections/from-item', authenticateToken, async (req, res) => {
+  const { service_id, source_id, target_group_id, workspace_id } = req.body;
+  if (!service_id || !source_id || !target_group_id || !workspace_id) {
+    return res.status(400).json({ error: 'service_id, source_id, target_group_id, dan workspace_id wajib diisi' });
+  }
+  try {
+    const result = await serviceGroupModel.createItemToGroupConnection(
+      service_id, source_id, target_group_id, workspace_id
+    );
+    await emitCmdbUpdate(cmdbModel);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete item-to-group connection
+router.delete('/connections/from-item/:serviceId/:sourceId/:targetGroupId', authenticateToken, async (req, res) => {
+  const { serviceId, sourceId, targetGroupId } = req.params;
+  try {
+    await serviceGroupModel.deleteItemToGroupConnection(serviceId, sourceId, targetGroupId);
+    await emitCmdbUpdate(cmdbModel);
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== SERVICE ITEM GROUP ASSIGNMENT ROUTES ====================
 
 router.patch('/items/:id/group', authenticateToken, async (req, res) => {
