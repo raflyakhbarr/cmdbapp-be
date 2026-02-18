@@ -49,23 +49,26 @@ CREATE TABLE IF NOT EXISTS service_group_connections (
         REFERENCES services(id) ON DELETE CASCADE,
     CONSTRAINT fk_service_group_conn_workspace FOREIGN KEY (workspace_id)
         REFERENCES workspaces(id) ON DELETE CASCADE,
-    CONSTRAINT fk_service_group_conn_source FOREIGN KEY (source_id)
+    CONSTRAINT fk_service_group_conn_source_group FOREIGN KEY (source_id)
         REFERENCES service_groups(id) ON DELETE CASCADE,
-    CONSTRAINT fk_service_group_conn_target FOREIGN KEY (target_id)
+    CONSTRAINT fk_service_group_conn_target_group FOREIGN KEY (target_id)
         REFERENCES service_groups(id) ON DELETE CASCADE,
-    CONSTRAINT fk_service_group_conn_source_group FOREIGN KEY (source_group_id)
+    CONSTRAINT fk_service_group_conn_source_group_2 FOREIGN KEY (source_group_id)
         REFERENCES service_groups(id) ON DELETE CASCADE,
-    CONSTRAINT fk_service_group_conn_target_group FOREIGN KEY (target_group_id)
+    CONSTRAINT fk_service_group_conn_target_group_2 FOREIGN KEY (target_group_id)
         REFERENCES service_groups(id) ON DELETE CASCADE,
+    CONSTRAINT fk_service_group_conn_target_item FOREIGN KEY (target_id)
+        REFERENCES service_items(id) ON DELETE CASCADE,
     CONSTRAINT check_service_group_source EXISTS CHECK (
         ((source_id IS NOT NULL) AND (source_group_id IS NULL)) OR
         ((source_id IS NULL) AND (source_group_id IS NOT NULL))
     ),
-    CONSTRAINT check_service_group_target CHECK (
-        ((target_id IS NOT NULL) AND (target_group_id IS NULL)) OR
-        ((target_id IS NULL) AND (target_group_id IS NOT NULL))
+    CONSTRAINT check_service_group_target_correct CHECK (
+        (target_id IS NOT NULL AND target_group_id IS NULL) OR
+        (target_id IS NULL AND target_group_id IS NOT NULL) OR
+        (target_id IS NULL AND target_group_id IS NULL)
     ),
-    CONSTRAINT unique_service_group_connection UNIQUE (service_id, source_id, target_id)
+    CONSTRAINT unique_service_group_connection UNIQUE (service_id, source_id, target_id, source_group_id, target_group_id)
 );
 
 -- Create indexes for performance
