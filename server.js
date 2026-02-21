@@ -47,7 +47,7 @@ app.use('/api/service-connections', serviceRoutes);
 app.use('/api/service-edge-handles', serviceEdgeHandleRoutes);
 app.use('/api/service-groups', serviceGroupRoutes);
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
