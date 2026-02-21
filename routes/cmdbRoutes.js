@@ -2,10 +2,134 @@ const express = require('express');
 const router = express.Router();
 const cmdbModel = require('../models/cmdbModel');
 const connectionModel = require('../models/connectionModel');
+const groupModel = require('../models/groupModel');
+const serviceModel = require('../models/serviceModel');
+const ShareLinkModel = require('../models/shareLinkModel');
 const { emitCmdbUpdate } = require('../socket');
 const pool = require('../db');
 const { env } = require('process');
 const { authenticateToken } = require('../middleware/auth');
+
+const shareLinkModel = new ShareLinkModel(pool);
+
+/**
+ * PUBLIC ROUTE: Get shared CMDB data by share token
+ * This endpoint does NOT require authentication
+ */
+router.get('/shared/:token', async (req, res) => {
+  const { token } = req.params;
+
+  try {
+    // Get share link info
+    const shareLink = await shareLinkModel.getByToken(token);
+
+    if (!shareLink) {
+      return res.status(404).json({
+        error: 'Share link not found or expired',
+        requires_password: false
+      });
+    }
+
+    const workspaceId = shareLink.workspace_id;
+    const hasPassword = !!shareLink.password_hash;
+
+    // Check if password is required
+    if (hasPassword) {
+      // Check if password was already verified in session
+      const sessionPasswordVerified = req.session?.verified_share_tokens?.[token];
+
+      if (!sessionPasswordVerified) {
+        return res.status(403).json({
+          error: 'Password required',
+          requires_password: true,
+          has_password: true
+        });
+      }
+    }
+
+    // Log access
+    const visitorIp = req.ip || req.connection.remoteAddress;
+    const userAgent = req.get('user-agent');
+    await shareLinkModel.logAccess(shareLink.id, visitorIp, userAgent);
+
+    // Get all data for the workspace
+    const [itemsResult, connectionsResult, groupsResult] = await Promise.all([
+      cmdbModel.getAllItems(workspaceId),
+      connectionModel.getAllConnections(workspaceId),
+      groupModel.getAllGroups(workspaceId)
+    ]);
+
+    // Get services for all items
+    const items = itemsResult.rows;
+    const itemsWithServices = await Promise.all(
+      items.map(async (item) => {
+        const servicesResult = await serviceModel.getServicesByItemId(item.id);
+        return {
+          ...item,
+          services: servicesResult.rows
+        };
+      })
+    );
+
+    res.json({
+      workspace_id: workspaceId,
+      items: itemsWithServices,
+      connections: connectionsResult.rows,
+      groups: groupsResult.rows,
+      share_info: {
+        token: shareLink.token,
+        created_at: shareLink.created_at,
+        expires_at: shareLink.expires_at,
+        has_password: hasPassword
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching shared CMDB:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUBLIC ROUTE: Verify password for protected share link
+ * This endpoint does NOT require authentication
+ */
+router.post('/shared/:token/verify-password', async (req, res) => {
+  const { token } = req.params;
+  const { password } = req.body;
+
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+
+  try {
+    const shareLink = await shareLinkModel.getByToken(token);
+
+    if (!shareLink) {
+      return res.status(404).json({ error: 'Share link not found or expired' });
+    }
+
+    if (!shareLink.password_hash) {
+      return res.status(400).json({ error: 'This share link is not password protected' });
+    }
+
+    const isValid = await shareLinkModel.verifyPassword(token, password);
+
+    if (isValid) {
+      // Store verified token in session
+      if (!req.session.verified_share_tokens) {
+        req.session.verified_share_tokens = {};
+      }
+      req.session.verified_share_tokens[token] = true;
+
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ error: 'Invalid password' });
+    }
+  } catch (err) {
+    console.error('Error verifying password:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.get('/', authenticateToken, async (req, res) => {
   const { workspace_id } = req.query;

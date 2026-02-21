@@ -2,10 +2,23 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const path = require('path');
+const session = require('express-session');
 require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Session middleware for password verification
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'cmdb-share-session-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
 
 const { initializeSocket } = require('./socket');
 initializeSocket(server);
@@ -36,6 +49,7 @@ const workspaceRoutes = require('./routes/workspaceRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
 const serviceEdgeHandleRoutes = require('./routes/serviceEdgeHandleRoutes');
 const serviceGroupRoutes = require('./routes/serviceGroupRoutes');
+const shareRoutes = require('./routes/shareRoutes');
 
 app.use('/api/cmdb', cmdbRoutes);
 app.use('/api/groups', groupRoutes);
@@ -46,6 +60,7 @@ app.use('/api/service-items', serviceRoutes);
 app.use('/api/service-connections', serviceRoutes);
 app.use('/api/service-edge-handles', serviceEdgeHandleRoutes);
 app.use('/api/service-groups', serviceGroupRoutes);
+app.use('/api/share', shareRoutes);
 
 const PORT = process.env.PORT;
 server.listen(PORT, () => {
