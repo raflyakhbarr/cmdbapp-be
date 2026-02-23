@@ -6,17 +6,18 @@ const getAllEdgeHandles = () =>
 const getEdgeHandleByEdgeId = (edgeId) =>
   pool.query('SELECT * FROM edge_handles WHERE edge_id = $1', [edgeId]);
 
-const upsertEdgeHandle = async (edgeId, sourceHandle, targetHandle) => {
+const upsertEdgeHandle = async (edgeId, sourceHandle, targetHandle, workspaceId) => {
   const result = await pool.query(
-    `INSERT INTO edge_handles (edge_id, source_handle, target_handle, updated_at)
-     VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-     ON CONFLICT (edge_id) 
-     DO UPDATE SET 
+    `INSERT INTO edge_handles (edge_id, source_handle, target_handle, workspace_id, updated_at)
+     VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+     ON CONFLICT (edge_id)
+     DO UPDATE SET
        source_handle = $2,
        target_handle = $3,
+       workspace_id = $4,
        updated_at = CURRENT_TIMESTAMP
      RETURNING *`,
-    [edgeId, sourceHandle, targetHandle]
+    [edgeId, sourceHandle, targetHandle, workspaceId]
   );
   return result;
 };
@@ -34,7 +35,7 @@ const deleteEdgeHandles = async (edgeIds) => {
   );
 };
 
-const bulkUpsertEdgeHandles = async (edgeHandles) => {
+const bulkUpsertEdgeHandles = async (edgeHandles, workspaceId) => {
   if (!edgeHandles || Object.keys(edgeHandles).length === 0) {
     return { rows: [] };
   }
@@ -42,23 +43,24 @@ const bulkUpsertEdgeHandles = async (edgeHandles) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     const results = [];
     for (const [edgeId, handles] of Object.entries(edgeHandles)) {
       const result = await client.query(
-        `INSERT INTO edge_handles (edge_id, source_handle, target_handle, updated_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         ON CONFLICT (edge_id) 
-         DO UPDATE SET 
+        `INSERT INTO edge_handles (edge_id, source_handle, target_handle, workspace_id, updated_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (edge_id)
+         DO UPDATE SET
            source_handle = $2,
            target_handle = $3,
+           workspace_id = $4,
            updated_at = CURRENT_TIMESTAMP
          RETURNING *`,
-        [edgeId, handles.sourceHandle, handles.targetHandle]
+        [edgeId, handles.sourceHandle, handles.targetHandle, workspaceId]
       );
       results.push(result.rows[0]);
     }
-    
+
     await client.query('COMMIT');
     return { rows: results };
   } catch (err) {

@@ -4,6 +4,7 @@ const cmdbModel = require('../models/cmdbModel');
 const connectionModel = require('../models/connectionModel');
 const groupModel = require('../models/groupModel');
 const serviceModel = require('../models/serviceModel');
+const edgeHandleModel = require('../models/edgeHandleModel');
 const ShareLinkModel = require('../models/shareLinkModel');
 const { emitCmdbUpdate } = require('../socket');
 const pool = require('../db');
@@ -53,10 +54,11 @@ router.get('/shared/:token', async (req, res) => {
     await shareLinkModel.logAccess(shareLink.id, visitorIp, userAgent);
 
     // Get all data for the workspace
-    const [itemsResult, connectionsResult, groupsResult] = await Promise.all([
+    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult] = await Promise.all([
       cmdbModel.getAllItems(workspaceId),
       connectionModel.getAllConnections(workspaceId),
-      groupModel.getAllGroups(workspaceId)
+      groupModel.getAllGroups(workspaceId),
+      edgeHandleModel.getAllEdgeHandles()
     ]);
 
     // Get services for all items
@@ -76,6 +78,7 @@ router.get('/shared/:token', async (req, res) => {
       items: itemsWithServices,
       connections: connectionsResult.rows,
       groups: groupsResult.rows,
+      edge_handles: edgeHandlesResult.rows,
       share_info: {
         token: shareLink.token,
         created_at: shareLink.created_at,

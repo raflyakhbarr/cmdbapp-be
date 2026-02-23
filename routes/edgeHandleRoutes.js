@@ -27,19 +27,26 @@ router.get('/', authenticateToken, async (req, res) => {
 
 // Upsert single edge handle
 router.post('/', authenticateToken, async (req, res) => {
-  const { edgeId, sourceHandle, targetHandle } = req.body;
-  
+  const { edgeId, sourceHandle, targetHandle, workspace_id } = req.body;
+
   if (!edgeId || !sourceHandle || !targetHandle) {
-    return res.status(400).json({ 
-      error: 'edgeId, sourceHandle, and targetHandle are required' 
+    return res.status(400).json({
+      error: 'edgeId, sourceHandle, and targetHandle are required'
     });
   }
-  
+
+  if (!workspace_id) {
+    return res.status(400).json({
+      error: 'workspace_id is required'
+    });
+  }
+
   try {
     const result = await edgeHandleModel.upsertEdgeHandle(
-      edgeId, 
-      sourceHandle, 
-      targetHandle
+      edgeId,
+      sourceHandle,
+      targetHandle,
+      workspace_id
     );
     await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
@@ -50,21 +57,27 @@ router.post('/', authenticateToken, async (req, res) => {
 
 // Bulk upsert edge handles
 router.post('/bulk', authenticateToken, async (req, res) => {
-  const { edgeHandles } = req.body;
-  
+  const { edgeHandles, workspace_id } = req.body;
+
   if (!edgeHandles || typeof edgeHandles !== 'object') {
-    return res.status(400).json({ 
-      error: 'edgeHandles object is required' 
+    return res.status(400).json({
+      error: 'edgeHandles object is required'
     });
   }
-  
+
+  if (!workspace_id) {
+    return res.status(400).json({
+      error: 'workspace_id is required'
+    });
+  }
+
   try {
-    const result = await edgeHandleModel.bulkUpsertEdgeHandles(edgeHandles);
+    const result = await edgeHandleModel.bulkUpsertEdgeHandles(edgeHandles, workspace_id);
     await emitCmdbUpdate(cmdbModel);
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       count: result.rows.length,
-      data: result.rows 
+      data: result.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
