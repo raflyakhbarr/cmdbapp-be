@@ -147,9 +147,19 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.get('/connections', authenticateToken, async (req, res) => {
   const { workspace_id } = req.query;
-  
+
   try {
     const result = await connectionModel.getAllConnections(workspace_id || null);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get connection type definitions
+router.get('/connection-types', authenticateToken, async (req, res) => {
+  try {
+    const result = await connectionModel.getConnectionTypeDefinitions();
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -210,18 +220,24 @@ router.post('/', authenticateToken, async (req, res) => {
 
 // Create connection between items
 router.post('/connections', authenticateToken, async (req, res) => {
-  const { source_id, target_id, workspace_id } = req.body;
-  
+  const { source_id, target_id, workspace_id, connection_type, direction } = req.body;
+
   if (!source_id || !target_id) {
     return res.status(400).json({ error: 'source_id and target_id are required' });
   }
-  
+
   if (!workspace_id) {
     return res.status(400).json({ error: 'workspace_id is required' });
   }
-  
+
   try {
-    const result = await connectionModel.createConnection(source_id, target_id, workspace_id);
+    const result = await connectionModel.createConnection(
+      source_id,
+      target_id,
+      workspace_id,
+      connection_type || 'depends_on',
+      direction || 'forward'
+    );
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -363,6 +379,39 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     await cmdbModel.deleteItem(id);
     await emitCmdbUpdate(cmdbModel);
     res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update connection between items
+router.put('/connections/:sourceId/:targetId', authenticateToken, async (req, res) => {
+  const { sourceId, targetId } = req.params;
+  const { workspace_id, connection_type, direction } = req.body;
+
+  if (!workspace_id) {
+    return res.status(400).json({ error: 'workspace_id is required' });
+  }
+
+  if (!connection_type || !direction) {
+    return res.status(400).json({ error: 'connection_type and direction are required' });
+  }
+
+  try {
+    const result = await connectionModel.updateConnection(
+      sourceId,
+      targetId,
+      workspace_id,
+      connection_type,
+      direction
+    );
+    await emitCmdbUpdate(cmdbModel);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Connection not found' });
+    }
+
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -31,11 +31,26 @@ const getDependencies = (itemId) => pool.query(
 );
 
 // Create a new connection - TAMBAHKAN workspace_id
-const createConnection = (sourceId, targetId, workspaceId) =>
+const createConnection = (sourceId, targetId, workspaceId, connectionType = 'depends_on', direction = 'forward') =>
   pool.query(
-    'INSERT INTO connections(source_id, target_id, workspace_id) VALUES($1, $2, $3) RETURNING *',
-    [sourceId, targetId, workspaceId]
+    'INSERT INTO connections(source_id, target_id, workspace_id, connection_type, direction) VALUES($1, $2, $3, $4, $5) RETURNING *',
+    [sourceId, targetId, workspaceId, connectionType, direction]
   );
+
+// Update existing connection
+const updateConnection = (sourceId, targetId, workspaceId, connectionType, direction) =>
+  pool.query(
+    `UPDATE connections
+     SET connection_type = $1, direction = $2
+     WHERE source_id = $3 AND target_id = $4 AND workspace_id = $5
+     RETURNING *`,
+    [connectionType, direction, sourceId, targetId, workspaceId]
+  );
+
+// Get all connection type definitions
+const getConnectionTypeDefinitions = () => {
+  return pool.query('SELECT * FROM connection_type_definitions WHERE is_active = true ORDER BY id');
+};
 
 // Delete a connection
 const deleteConnection = (sourceId, targetId) =>
@@ -112,6 +127,7 @@ module.exports = {
   getDependentItems,
   getDependencies,
   createConnection,
+  updateConnection,
   deleteConnection,
   deleteConnectionsByItemId,
   getAffectedItems,
@@ -120,4 +136,5 @@ module.exports = {
   getConnectionsWithGroups,
   createGroupToItemConnection,
   deleteGroupToItemConnection,
+  getConnectionTypeDefinitions,
 };
