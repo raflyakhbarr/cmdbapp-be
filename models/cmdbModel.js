@@ -13,26 +13,25 @@ const getAllItems = (workspaceId = null) => {
 
 const getItemById = (id) => pool.query('SELECT * FROM cmdb_items WHERE id = $1', [id]);
 
-const createItem = (name, type, description, status = 'active', ip, category, location, group_id, env_type, position = null, workspace_id, storage = null) =>
+const createItem = (name, type, description, status = 'active', ip, category, location, group_id, env_type, position = null, workspace_id, storage = null, alias = null, port = null) =>
   pool.query(
     `INSERT INTO cmdb_items(
-        name, type, description, status, ip, category, location, group_id, order_in_group, env_type, position, workspace_id, storage
+        name, type, description, status, ip, category, location, group_id, env_type, position, workspace_id, storage, alias, port, order_in_group
      )
      VALUES(
-        $1, $2, $3, $4, $5, $6, $7, $8,
-        COALESCE((SELECT MAX(order_in_group) + 1 FROM cmdb_items WHERE group_id = $8 AND workspace_id = $11), 0),
-        $9, $10, $11, $12
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+        COALESCE((SELECT MAX(order_in_group) + 1 FROM cmdb_items WHERE group_id = $8 AND workspace_id = $11), 0)
      ) RETURNING *`,
-    [name, type, description, status, ip, category, location, group_id, env_type, position ? JSON.stringify(position) : null, workspace_id, storage ? JSON.stringify(storage) : null]
+    [name, type, description, status, ip, category, location, group_id, env_type, position ? JSON.stringify(position) : null, workspace_id, storage ? JSON.stringify(storage) : null, alias, port]
   );
 
-const updateItem = (id, name, type, description, status, ip, category, location, group_id, env_type, storage = null) =>
+const updateItem = (id, name, type, description, status, ip, category, location, group_id, env_type, storage = null, alias = null, port = null) =>
   pool.query(
     `UPDATE cmdb_items
-     SET name = $1, type = $2, description = $3, status = $4, ip = $5, category = $6, location = $7, group_id = $8, env_type = $9, storage = $10
-     WHERE id = $11
+     SET name = $1, type = $2, description = $3, status = $4, ip = $5, category = $6, location = $7, group_id = $8, env_type = $9, storage = $10, alias = $11, port = $12
+     WHERE id = $13
      RETURNING *`,
-    [name, type, description, status, ip, category, location, group_id, env_type, storage ? JSON.stringify(storage) : null, id]
+    [name, type, description, status, ip, category, location, group_id, env_type, storage ? JSON.stringify(storage) : null, alias, port, id]
   );
 
 const deleteItem = (id) => pool.query('DELETE FROM cmdb_items WHERE id = $1', [id]);

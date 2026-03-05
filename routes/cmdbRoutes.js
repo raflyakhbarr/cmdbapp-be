@@ -190,7 +190,7 @@ router.get('/:id/affected', authenticateToken, async (req, res) => {
 
 // Method post buat item
 router.post('/', authenticateToken, async (req, res) => {
-  const { name, type, description, status, ip, category, location, group_id, env_type, position, workspace_id, storage } = req.body;
+  const { name, type, description, status, ip, category, location, group_id, env_type, position, workspace_id, storage, alias, port } = req.body;
 
   if(!workspace_id) {
     return res.status(400).json({ error: 'workspace_id is required' });
@@ -209,7 +209,9 @@ router.post('/', authenticateToken, async (req, res) => {
       env_type,
       position ? JSON.parse(position) : null,
       workspace_id,
-      storage || null
+      storage || null,
+      alias || null,
+      port || null
     );
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
@@ -290,7 +292,7 @@ router.put('/:id/position', authenticateToken, async (req, res) => {
 // Method update
 router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { name, type, description, status, ip, category, location, group_id, env_type, storage } = req.body;
+  const { name, type, description, status, ip, category, location, group_id, env_type, storage, alias, port } = req.body;
 
   try {
     if (status) {
@@ -308,7 +310,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
       location,
       group_id || null,
       env_type,
-      storage || null
+      storage || null,
+      alias || null,
+      port || null
     );
     await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
