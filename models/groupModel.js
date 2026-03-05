@@ -38,11 +38,11 @@ const getAllGroupConnections = (workspaceId = null) => {
   return pool.query('SELECT * FROM group_connections');
 };
 
-// TAMBAHKAN workspace_id
-const createGroupConnection = (sourceId, targetId, workspaceId) =>
+// TAMBAHKAN workspace_id, connection_type, direction
+const createGroupConnection = (sourceId, targetId, workspaceId, connectionType = 'depends_on', direction = 'forward') =>
   pool.query(
-    'INSERT INTO group_connections(source_id, target_id, workspace_id) VALUES($1, $2, $3) RETURNING *',
-    [sourceId, targetId, workspaceId]
+    'INSERT INTO group_connections(source_id, target_id, workspace_id, connection_type, direction) VALUES($1, $2, $3, $4, $5) RETURNING *',
+    [sourceId, targetId, workspaceId, connectionType, direction]
   );
 
 const deleteGroupConnection = (sourceId, targetId) =>

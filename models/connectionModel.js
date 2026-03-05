@@ -121,6 +121,25 @@ const deleteGroupToItemConnection = (groupId, itemId) =>
     [groupId, itemId]
   );
 
+// Update connection type for group-to-item or item-to-group connections
+const updateGroupItemConnection = (sourceGroupId, targetId, workspaceId, connectionType, direction) =>
+  pool.query(
+    `UPDATE connections
+     SET connection_type = $1, direction = $2
+     WHERE source_group_id = $3 AND target_id = $4 AND workspace_id = $5
+     RETURNING *`,
+    [connectionType, direction, sourceGroupId, targetId, workspaceId]
+  );
+
+const updateItemGroupConnection = (sourceId, targetGroupId, workspaceId, connectionType, direction) =>
+  pool.query(
+    `UPDATE connections
+     SET connection_type = $1, direction = $2
+     WHERE source_id = $3 AND target_group_id = $4 AND workspace_id = $5
+     RETURNING *`,
+    [connectionType, direction, sourceId, targetGroupId, workspaceId]
+  );
+
 module.exports = {
   getAllConnections,
   getConnectionsByItemId,
@@ -136,5 +155,7 @@ module.exports = {
   getConnectionsWithGroups,
   createGroupToItemConnection,
   deleteGroupToItemConnection,
+  updateGroupItemConnection,
+  updateItemGroupConnection,
   getConnectionTypeDefinitions,
 };

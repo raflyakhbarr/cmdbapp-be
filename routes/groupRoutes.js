@@ -92,14 +92,20 @@ router.get('/connections', authenticateToken, async (req, res) => {
 
 // Create group connection
 router.post('/connections', authenticateToken, async (req, res) => {
-  const { source_id, target_id, workspace_id } = req.body;
-  
+  const { source_id, target_id, workspace_id, connection_type, direction } = req.body;
+
   if (!workspace_id) {
     return res.status(400).json({ error: 'workspace_id is required' });
   }
-  
+
   try {
-    const result = await groupModel.createGroupConnection(source_id, target_id, workspace_id);
+    const result = await groupModel.createGroupConnection(
+      source_id,
+      target_id,
+      workspace_id,
+      connection_type || 'depends_on',
+      direction || 'forward'
+    );
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {

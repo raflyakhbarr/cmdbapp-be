@@ -478,6 +478,42 @@ router.delete('/connections/from-group/:sourceGroupId/:targetId', authenticateTo
   }
 });
 
+// Update group-to-item connection type
+router.put('/connections/from-group/:sourceGroupId/:targetId', authenticateToken, async (req, res) => {
+  const { sourceGroupId, targetId } = req.params;
+  const { workspace_id, connection_type, direction } = req.body;
+
+  if (!workspace_id || !connection_type || !direction) {
+    return res.status(400).json({ error: 'workspace_id, connection_type, and direction are required' });
+  }
+
+  try {
+    const result = await connectionModel.updateGroupItemConnection(sourceGroupId, targetId, workspace_id, connection_type, direction);
+    await emitCmdbUpdate(cmdbModel);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update item-to-group connection type
+router.put('/connections/to-group/:sourceId/:targetGroupId', authenticateToken, async (req, res) => {
+  const { sourceId, targetGroupId } = req.params;
+  const { workspace_id, connection_type, direction } = req.body;
+
+  if (!workspace_id || !connection_type || !direction) {
+    return res.status(400).json({ error: 'workspace_id, connection_type, and direction are required' });
+  }
+
+  try {
+    const result = await connectionModel.updateItemGroupConnection(sourceId, targetGroupId, workspace_id, connection_type, direction);
+    await emitCmdbUpdate(cmdbModel);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/trigger-update', authenticateToken, async (req, res) => {
   try {
     await emitCmdbUpdate(cmdbModel);
