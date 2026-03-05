@@ -8,6 +8,10 @@ const authenticateToken = (req, res, next) => {
 
   const token = authHeader && authHeader.split(' ')[1];
 
+  console.log('🔐 [Backend Auth] Token received:', token ? token.substring(0, 20) + '...' : 'NO TOKEN');
+  console.log('🔐 [Backend Auth] Auth Header:', authHeader);
+  console.log('🔐 [Backend Auth] Request URL:', req.url);
+
   if (!token) {
     return res.status(401).json({
       error: 'Access token required',
