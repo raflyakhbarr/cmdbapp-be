@@ -3,13 +3,28 @@ const router = express.Router();
 const pool = require('../db');
 const serviceModel = require('../models/serviceModel');
 const cmdbModel = require('../models/cmdbModel');
-const { emitCmdbUpdate } = require('../socket');
+const { emitCmdbUpdate, emitServiceUpdate } = require('../socket');
 const upload = require('../config/upload');
 const fs = require('fs');
 const path = require('path');
 const { authenticateToken } = require('../middleware/auth');
 
 // ==================== SERVICES ROUTES ====================
+
+// Get a single service by ID (more specific route to avoid conflict with :cmdbItemId)
+router.get('/single/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await serviceModel.getServiceById(id);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Get all services for a CMDB item
 router.get('/:cmdbItemId', authenticateToken, async (req, res) => {
@@ -196,8 +211,34 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
   }
 
   try {
+    // Get service first
+    const serviceResult = await serviceModel.getServiceById(id);
+    if (serviceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    const service = serviceResult.rows[0];
+
+    // Try to get workspace_id from service items first
+    let workspaceId = null;
+    const itemsResult = await serviceModel.getAllServiceItems(id, null);
+
+    if (itemsResult.rows.length > 0) {
+      workspaceId = itemsResult.rows[0].workspace_id;
+    } else {
+      // If no service items, get workspace_id from cmdb_item
+      const cmdbModel = require('../models/cmdbModel');
+      const cmdbResult = await cmdbModel.getItemById(service.cmdb_item_id);
+      if (cmdbResult.rows.length > 0) {
+        workspaceId = cmdbResult.rows[0].workspace_id;
+      }
+    }
+
+    if (!workspaceId) {
+      const result = await serviceModel.updateServiceStatus(id, status);
+      return res.json(result.rows[0]);
+    }
     const result = await serviceModel.updateServiceStatus(id, status);
-    await emitCmdbUpdate(cmdbModel);
+    await emitServiceUpdate(id, workspaceId);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -306,8 +347,15 @@ router.patch('/items/:id/status', authenticateToken, async (req, res) => {
   }
 
   try {
+    // Get service item first to obtain service_id and workspace_id
+    const itemResult = await serviceModel.getServiceItemById(id);
+    if (itemResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service item not found' });
+    }
+    const item = itemResult.rows[0];
+
     const result = await serviceModel.updateServiceItemStatus(id, status);
-    await emitCmdbUpdate(cmdbModel);
+    await emitServiceUpdate(item.service_id, item.workspace_id);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

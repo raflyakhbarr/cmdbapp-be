@@ -36,4 +36,18 @@ const emitCmdbUpdate = async () => {
   }
 };
 
-module.exports = { initializeSocket, emitCmdbUpdate };
+const emitServiceUpdate = async (serviceId, workspaceId) => {
+  if (!io) {
+    console.warn('⚠️ Socket.IO belum diinisialisasi. Lewati emit.');
+    return;
+  }
+  try {
+    // Emit event untuk service update dengan serviceId dan workspaceId
+    io.emit('service_update', { serviceId, workspaceId });
+    console.log(`✅ Service update emitted: service=${serviceId}, workspace=${workspaceId}`);
+  } catch (err) {
+    console.error('Failed to emit service update:', err);
+  }
+};
+
+module.exports = { initializeSocket, emitCmdbUpdate, emitServiceUpdate };
