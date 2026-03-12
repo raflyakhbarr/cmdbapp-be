@@ -52,6 +52,14 @@ const updateServiceIcon = (id, iconType, iconPath = null, iconName = null) => {
   );
 };
 
+// Update service status only
+const updateServiceStatus = (id, status) => {
+  return pool.query(
+    'UPDATE services SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+    [status, id]
+  );
+};
+
 // Delete service (cascade will delete service_items and service_connections)
 const deleteService = (id) => {
   return pool.query('DELETE FROM services WHERE id = $1 RETURNING *', [id]);
@@ -128,6 +136,14 @@ const updateServiceItemPosition = (id, position) => {
   );
 };
 
+// Update service item status only
+const updateServiceItemStatus = (id, status) => {
+  return pool.query(
+    'UPDATE service_items SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+    [status, id]
+  );
+};
+
 // Delete service item
 const deleteServiceItem = (id) => {
   return pool.query('DELETE FROM service_items WHERE id = $1 RETURNING *', [id]);
@@ -174,6 +190,7 @@ module.exports = {
   createService,
   updateService,
   updateServiceIcon,
+  updateServiceStatus,
   deleteService,
 
   // Service Items
@@ -182,6 +199,7 @@ module.exports = {
   createServiceItem,
   updateServiceItem,
   updateServiceItemPosition,
+  updateServiceItemStatus,
   deleteServiceItem,
 
   // Service Connections

@@ -181,6 +181,29 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Update service status only
+router.patch('/:id/status', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ error: 'status is required' });
+  }
+
+  const validStatuses = ['active', 'inactive', 'maintenance'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, or maintenance' });
+  }
+
+  try {
+    const result = await serviceModel.updateServiceStatus(id, status);
+    await emitCmdbUpdate(cmdbModel);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== SERVICE ITEMS ROUTES ====================
 
 // Get all service items
@@ -262,6 +285,29 @@ router.put('/items/:id/position', authenticateToken, async (req, res) => {
 
   try {
     const result = await serviceModel.updateServiceItemPosition(id, position);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update service item status only
+router.patch('/items/:id/status', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ error: 'status is required' });
+  }
+
+  const validStatuses = ['active', 'inactive', 'maintenance'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, or maintenance' });
+  }
+
+  try {
+    const result = await serviceModel.updateServiceItemStatus(id, status);
+    await emitCmdbUpdate(cmdbModel);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
