@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const crossServiceConnectionModel = require('../models/crossServiceConnectionModel');
+const crossServiceEdgeHandleModel = require('../models/crossServiceEdgeHandleModel');
 const { authenticateToken } = require('../middleware/auth');
 const { emitServiceUpdate, emitCrossServiceConnectionUpdate } = require('../socket');
 
@@ -206,6 +207,86 @@ router.delete('/between/:sourceId/:targetId', authenticateToken, async (req, res
     await emitCrossServiceConnectionUpdate(sourceId, targetId, connection.workspace_id);
 
     res.json({ message: 'Connection deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== CROSS-SERVICE EDGE HANDLE ROUTES ====================
+
+// Get all cross-service edge handles for a workspace
+router.get('/edge-handles/workspace/:workspaceId', authenticateToken, async (req, res) => {
+  const { workspaceId } = req.params;
+
+  try {
+    const result = await crossServiceEdgeHandleModel.getAllCrossServiceEdgeHandles(workspaceId);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get cross-service edge handle by edge ID
+router.get('/edge-handles/edge/:edgeId', authenticateToken, async (req, res) => {
+  const { edgeId } = req.params;
+
+  try {
+    const result = await crossServiceEdgeHandleModel.getCrossServiceEdgeHandleByEdgeId(edgeId);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk upsert cross-service edge handles
+router.post('/edge-handles/bulk', authenticateToken, async (req, res) => {
+  const { edgeHandles, workspaceId } = req.body;
+
+  if (!edgeHandles || !workspaceId) {
+    return res.status(400).json({ error: 'edgeHandles and workspaceId are required' });
+  }
+
+  try {
+    const result = await crossServiceEdgeHandleModel.bulkUpsertCrossServiceEdgeHandles(edgeHandles, workspaceId);
+    res.status(201).json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upsert single cross-service edge handle
+router.put('/edge-handles/:edgeId', authenticateToken, async (req, res) => {
+  const { edgeId } = req.params;
+  const { sourceServiceId, targetServiceId, sourceHandle, targetHandle, workspaceId } = req.body;
+
+  if (!sourceServiceId || !targetServiceId || !sourceHandle || !targetHandle || !workspaceId) {
+    return res.status(400).json({
+      error: 'sourceServiceId, targetServiceId, sourceHandle, targetHandle, and workspaceId are required'
+    });
+  }
+
+  try {
+    const result = await crossServiceEdgeHandleModel.upsertCrossServiceEdgeHandle(
+      edgeId,
+      sourceServiceId,
+      targetServiceId,
+      sourceHandle,
+      targetHandle,
+      workspaceId
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete cross-service edge handle
+router.delete('/edge-handles/:edgeId', authenticateToken, async (req, res) => {
+  const { edgeId } = req.params;
+
+  try {
+    await crossServiceEdgeHandleModel.deleteCrossServiceEdgeHandle(edgeId);
+    res.json({ message: 'Edge handle deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
