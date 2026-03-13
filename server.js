@@ -48,6 +48,8 @@ const workspaceRoutes = require('./routes/workspaceRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
 const serviceEdgeHandleRoutes = require('./routes/serviceEdgeHandleRoutes');
 const serviceGroupRoutes = require('./routes/serviceGroupRoutes');
+const crossServiceConnectionRoutes = require('./routes/crossServiceConnectionRoutes');
+const externalItemRoutes = require('./routes/externalItemRoutes');
 const shareRoutes = require('./routes/shareRoutes');
 
 app.use('/api/cmdb', cmdbRoutes);
@@ -59,6 +61,8 @@ app.use('/api/service-items', serviceRoutes);
 app.use('/api/service-connections', serviceRoutes);
 app.use('/api/service-edge-handles', serviceEdgeHandleRoutes);
 app.use('/api/service-groups', serviceGroupRoutes);
+app.use('/api/cross-service-connections', crossServiceConnectionRoutes);
+app.use('/api/external-item-positions', externalItemRoutes);
 app.use('/api/share', shareRoutes);
 
 const PORT = process.env.PORT;
