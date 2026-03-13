@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require('../db');
 const serviceModel = require('../models/serviceModel');
 const cmdbModel = require('../models/cmdbModel');
-const { emitCmdbUpdate, emitServiceUpdate } = require('../socket');
+const { emitCmdbUpdate, emitServiceUpdate, emitServiceItemStatusUpdate } = require('../socket');
 const upload = require('../config/upload');
 const fs = require('fs');
 const path = require('path');
@@ -205,9 +205,9 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'status is required' });
   }
 
-  const validStatuses = ['active', 'inactive', 'maintenance'];
+  const validStatuses = ['active', 'inactive', 'maintenance', 'disabled', 'decommissioned'];
   if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, or maintenance' });
+    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, maintenance, disabled, or decommissioned' });
   }
 
   try {
@@ -341,9 +341,9 @@ router.patch('/items/:id/status', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'status is required' });
   }
 
-  const validStatuses = ['active', 'inactive', 'maintenance'];
+  const validStatuses = ['active', 'inactive', 'maintenance', 'disabled', 'decommissioned'];
   if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, or maintenance' });
+    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, maintenance, disabled, or decommissioned' });
   }
 
   try {
@@ -355,7 +355,9 @@ router.patch('/items/:id/status', authenticateToken, async (req, res) => {
     const item = itemResult.rows[0];
 
     const result = await serviceModel.updateServiceItemStatus(id, status);
+    // Emit both service update (for nodes) and service item status update (for hover cards)
     await emitServiceUpdate(item.service_id, item.workspace_id);
+    await emitServiceItemStatusUpdate(id, status, item.workspace_id);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

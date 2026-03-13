@@ -76,6 +76,23 @@ const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
   }
 };
 
+// Emit event untuk service item status updates
+const emitServiceItemStatusUpdate = async (serviceItemId, newStatus, workspaceId) => {
+  if (!io) {
+    console.warn('⚠️ Socket.IO belum diinisialisasi. Lewati emit.');
+    return;
+  }
+  try {
+    io.emit('service_item_status_update', {
+      serviceItemId,
+      newStatus,
+      workspaceId
+    });
+  } catch (err) {
+    console.error('Failed to emit service item status update:', err);
+  }
+};
+
 // Emit event untuk cross-service connection updates
 const emitCrossServiceConnectionUpdate = async (sourceServiceItemId, targetServiceItemId, workspaceId) => {
   if (!io) {
@@ -117,4 +134,4 @@ const emitCrossServiceConnectionUpdate = async (sourceServiceItemId, targetServi
   }
 };
 
-module.exports = { initializeSocket, emitCmdbUpdate, emitServiceUpdate, emitCrossServiceConnectionUpdate };
+module.exports = { initializeSocket, emitCmdbUpdate, emitServiceUpdate, emitServiceItemStatusUpdate, emitCrossServiceConnectionUpdate };
