@@ -160,13 +160,16 @@ const getAllServiceConnections = (serviceId, workspaceId) => {
 };
 
 // Create a new service connection
-const createServiceConnection = (serviceId, sourceId, targetId, workspaceId) => {
+const createServiceConnection = (serviceId, sourceId, targetId, workspaceId, connectionType = 'connects_to', propagation = 'source_to_target') => {
   return pool.query(
-    `INSERT INTO service_connections (service_id, source_id, target_id, workspace_id)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (service_id, source_id, target_id) DO NOTHING
+    `INSERT INTO service_connections (service_id, source_id, target_id, workspace_id, connection_type, propagation)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (service_id, source_id, target_id) DO UPDATE SET
+       connection_type = EXCLUDED.connection_type,
+       propagation = EXCLUDED.propagation,
+       updated_at = CURRENT_TIMESTAMP
      RETURNING *`,
-    [serviceId, sourceId, targetId, workspaceId]
+    [serviceId, sourceId, targetId, workspaceId, connectionType, propagation]
   );
 };
 
@@ -175,6 +178,17 @@ const deleteServiceConnection = (serviceId, sourceId, targetId) => {
   return pool.query(
     'DELETE FROM service_connections WHERE service_id = $1 AND source_id = $2 AND target_id = $3 RETURNING *',
     [serviceId, sourceId, targetId]
+  );
+};
+
+// Update service connection type and propagation
+const updateServiceConnection = (serviceId, sourceId, targetId, connectionType, propagation) => {
+  return pool.query(
+    `UPDATE service_connections
+     SET connection_type = $4, propagation = $5, updated_at = CURRENT_TIMESTAMP
+     WHERE service_id = $1 AND source_id = $2 AND target_id = $3
+     RETURNING *`,
+    [serviceId, sourceId, targetId, connectionType, propagation]
   );
 };
 
@@ -205,6 +219,7 @@ module.exports = {
   // Service Connections
   getAllServiceConnections,
   createServiceConnection,
+  updateServiceConnection,
   deleteServiceConnection,
   deleteServiceConnectionsByItemId,
 };

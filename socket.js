@@ -77,7 +77,7 @@ const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
 };
 
 // Emit event untuk service item status updates
-const emitServiceItemStatusUpdate = async (serviceItemId, newStatus, workspaceId) => {
+const emitServiceItemStatusUpdate = async (serviceItemId, newStatus, workspaceId, serviceId) => {
   if (!io) {
     console.warn('⚠️ Socket.IO belum diinisialisasi. Lewati emit.');
     return;
@@ -86,7 +86,8 @@ const emitServiceItemStatusUpdate = async (serviceItemId, newStatus, workspaceId
     io.emit('service_item_status_update', {
       serviceItemId,
       newStatus,
-      workspaceId
+      workspaceId,
+      serviceId
     });
   } catch (err) {
     console.error('Failed to emit service item status update:', err);

@@ -357,7 +357,7 @@ router.patch('/items/:id/status', authenticateToken, async (req, res) => {
     const result = await serviceModel.updateServiceItemStatus(id, status);
     // Emit both service update (for nodes) and service item status update (for hover cards)
     await emitServiceUpdate(item.service_id, item.workspace_id);
-    await emitServiceItemStatusUpdate(id, status, item.workspace_id);
+    await emitServiceItemStatusUpdate(id, status, item.workspace_id, item.service_id);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -400,16 +400,47 @@ router.get('/:serviceId/connections', authenticateToken, async (req, res) => {
 // Create a new service connection
 router.post('/:serviceId/connections', authenticateToken, async (req, res) => {
   const { serviceId } = req.params;
-  const { source_id, target_id, workspace_id } = req.body;
+  const { source_id, target_id, workspace_id, connection_type, propagation } = req.body;
 
   if (!source_id || !target_id || !workspace_id) {
     return res.status(400).json({ error: 'source_id, target_id, and workspace_id are required' });
   }
 
   try {
-    const result = await serviceModel.createServiceConnection(serviceId, source_id, target_id, workspace_id);
+    const result = await serviceModel.createServiceConnection(
+      serviceId,
+      source_id,
+      target_id,
+      workspace_id,
+      connection_type || 'connects_to',
+      propagation || 'source_to_target'
+    );
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update service connection type and propagation
+router.put('/:serviceId/connections/:sourceId/:targetId', authenticateToken, async (req, res) => {
+  const { serviceId, sourceId, targetId } = req.params;
+  const { connection_type, propagation } = req.body;
+
+  if (!connection_type || !propagation) {
+    return res.status(400).json({ error: 'connection_type and propagation are required' });
+  }
+
+  try {
+    const result = await serviceModel.updateServiceConnection(
+      serviceId,
+      sourceId,
+      targetId,
+      connection_type,
+      propagation
+    );
+    await emitCmdbUpdate(cmdbModel);
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
