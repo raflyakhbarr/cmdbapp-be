@@ -11,17 +11,23 @@ const getCrossServiceConnectionsByWorkspace = (workspaceId) => {
       ssi.status as source_status,
       ss.cmdb_item_id as source_cmdb_item_id,
       ssi.service_id as source_service_id,
+      ss.name as source_service_name,
+      cmi_source.name as source_cmdb_item_name,
       tsi.id as target_id,
       tsi.name as target_name,
       tsi.type as target_type,
       tsi.status as target_status,
       ts.cmdb_item_id as target_cmdb_item_id,
-      tsi.service_id as target_service_id
+      tsi.service_id as target_service_id,
+      ts.name as target_service_name,
+      cmi_target.name as target_cmdb_item_name
     FROM cross_service_connections csc
     INNER JOIN service_items ssi ON csc.source_service_item_id = ssi.id
     INNER JOIN services ss ON ssi.service_id = ss.id
+    INNER JOIN cmdb_items cmi_source ON ss.cmdb_item_id = cmi_source.id
     INNER JOIN service_items tsi ON csc.target_service_item_id = tsi.id
     INNER JOIN services ts ON tsi.service_id = ts.id
+    INNER JOIN cmdb_items cmi_target ON ts.cmdb_item_id = cmi_target.id
     WHERE csc.workspace_id = $1
     ORDER BY csc.created_at DESC
   `, [workspaceId]);
@@ -38,17 +44,23 @@ const getCrossServiceConnectionsByServiceItemId = (serviceItemId) => {
       ssi.status as source_status,
       ss.cmdb_item_id as source_cmdb_item_id,
       ssi.service_id as source_service_id,
+      ss.name as source_service_name,
+      cmi_source.name as source_cmdb_item_name,
       tsi.id as target_id,
       tsi.name as target_name,
       tsi.type as target_type,
       tsi.status as target_status,
       ts.cmdb_item_id as target_cmdb_item_id,
-      tsi.service_id as target_service_id
+      tsi.service_id as target_service_id,
+      ts.name as target_service_name,
+      cmi_target.name as target_cmdb_item_name
     FROM cross_service_connections csc
     INNER JOIN service_items ssi ON csc.source_service_item_id = ssi.id
     INNER JOIN services ss ON ssi.service_id = ss.id
+    INNER JOIN cmdb_items cmi_source ON ss.cmdb_item_id = cmi_source.id
     INNER JOIN service_items tsi ON csc.target_service_item_id = tsi.id
     INNER JOIN services ts ON tsi.service_id = ts.id
+    INNER JOIN cmdb_items cmi_target ON ts.cmdb_item_id = cmi_target.id
     WHERE csc.source_service_item_id = $1 OR csc.target_service_item_id = $1
     ORDER BY csc.created_at DESC
   `, [serviceItemId]);

@@ -36,18 +36,85 @@ const emitCmdbUpdate = async () => {
   }
 };
 
-const emitServiceUpdate = async (serviceId, workspaceId) => {
+const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
   if (!io) {
     console.warn('⚠️ Socket.IO belum diinisialisasi. Lewati emit.');
     return;
   }
   try {
+    // Check if the ID is a service item ID or service ID
+    // by querying the service_items table first
+    const pool = require('./db');
+    const itemResult = await pool.query(
+      'SELECT service_id FROM service_items WHERE id = $1',
+      [serviceIdOrItemId]
+    );
+
+    let actualServiceId;
+    if (itemResult.rows.length > 0) {
+      // It's a service item ID, get the service_id
+      actualServiceId = itemResult.rows[0].service_id;
+    } else {
+      // It might already be a service ID, verify it exists
+      const serviceResult = await pool.query(
+        'SELECT id FROM services WHERE id = $1',
+        [serviceIdOrItemId]
+      );
+      if (serviceResult.rows.length > 0) {
+        actualServiceId = serviceIdOrItemId;
+      } else {
+        console.warn('⚠️ Could not find service or service item for socket emit');
+        return;
+      }
+    }
+
     // Emit event untuk service update dengan serviceId dan workspaceId
-    io.emit('service_update', { serviceId, workspaceId });
-    console.log(`✅ Service update emitted: service=${serviceId}, workspace=${workspaceId}`);
+    io.emit('service_update', { serviceId: actualServiceId, workspaceId });
+    console.log(`✅ Service update emitted: service=${actualServiceId}, workspace=${workspaceId}`);
   } catch (err) {
     console.error('Failed to emit service update:', err);
   }
 };
 
-module.exports = { initializeSocket, emitCmdbUpdate, emitServiceUpdate };
+// Emit event untuk cross-service connection updates
+const emitCrossServiceConnectionUpdate = async (sourceServiceItemId, targetServiceItemId, workspaceId) => {
+  if (!io) {
+    console.warn('⚠️ Socket.IO belum diinisialisasi. Lewati emit.');
+    return;
+  }
+  try {
+    // Get service IDs for both service items with explicit ordering
+    const pool = require('./db');
+    const serviceQuery = `
+      SELECT id, service_id
+      FROM service_items
+      WHERE id = $1 OR id = $2
+    `;
+    const result = await pool.query(serviceQuery, [sourceServiceItemId, targetServiceItemId]);
+
+    if (result.rows.length === 2) {
+      // Find the correct service IDs by matching the IDs
+      const sourceRow = result.rows.find(row => row.id === parseInt(sourceServiceItemId));
+      const targetRow = result.rows.find(row => row.id === parseInt(targetServiceItemId));
+
+      if (sourceRow && targetRow) {
+        const sourceServiceId = sourceRow.service_id;
+        const targetServiceId = targetRow.service_id;
+
+        // Emit event cross-service connection update dengan info service yang terpengaruh
+        io.emit('cross_service_connection_update', {
+          sourceServiceId,
+          targetServiceId,
+          workspaceId
+        });
+        console.log(`✅ Cross-service connection update emitted: sourceService=${sourceServiceId}, targetService=${targetServiceId}, workspace=${workspaceId}`);
+      } else {
+        console.warn('⚠️ Could not find both service items for socket emit');
+      }
+    }
+  } catch (err) {
+    console.error('Failed to emit cross-service connection update:', err);
+  }
+};
+
+module.exports = { initializeSocket, emitCmdbUpdate, emitServiceUpdate, emitCrossServiceConnectionUpdate };

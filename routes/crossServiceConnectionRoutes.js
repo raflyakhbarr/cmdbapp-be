@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crossServiceConnectionModel = require('../models/crossServiceConnectionModel');
 const { authenticateToken } = require('../middleware/auth');
-const { emitServiceUpdate } = require('../socket');
+const { emitServiceUpdate, emitCrossServiceConnectionUpdate } = require('../socket');
 
 // ==================== CROSS-SERVICE CONNECTION ROUTES ====================
 
@@ -84,6 +84,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Emit socket update for both service items
     await emitServiceUpdate(source_service_item_id, workspace_id);
     await emitServiceUpdate(target_service_item_id, workspace_id);
+    await emitCrossServiceConnectionUpdate(source_service_item_id, target_service_item_id, workspace_id);
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -120,6 +121,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     // Emit socket update for both service items
     await emitServiceUpdate(result.rows[0].source_service_item_id, req.body.workspace_id);
     await emitServiceUpdate(result.rows[0].target_service_item_id, req.body.workspace_id);
+    await emitCrossServiceConnectionUpdate(result.rows[0].source_service_item_id, result.rows[0].target_service_item_id, req.body.workspace_id);
 
     res.json(result.rows[0]);
   } catch (err) {
@@ -176,6 +178,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     // Emit socket update for both service items
     await emitServiceUpdate(connection.source_service_item_id, connection.workspace_id);
     await emitServiceUpdate(connection.target_service_item_id, connection.workspace_id);
+    await emitCrossServiceConnectionUpdate(connection.source_service_item_id, connection.target_service_item_id, connection.workspace_id);
 
     res.json({ message: 'Connection deleted successfully' });
   } catch (err) {
@@ -200,6 +203,7 @@ router.delete('/between/:sourceId/:targetId', authenticateToken, async (req, res
     // Emit socket update for both service items
     await emitServiceUpdate(sourceId, connection.workspace_id);
     await emitServiceUpdate(targetId, connection.workspace_id);
+    await emitCrossServiceConnectionUpdate(sourceId, targetId, connection.workspace_id);
 
     res.json({ message: 'Connection deleted successfully' });
   } catch (err) {
