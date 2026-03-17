@@ -1,5 +1,14 @@
 const pool = require('../db');
 
+// Lazy load socket functions to avoid circular dependency
+let socketFunctions = null;
+const getSocketFunctions = () => {
+  if (!socketFunctions) {
+    socketFunctions = require('../socket');
+  }
+  return socketFunctions;
+};
+
 // ==================== SERVICES CRUD ====================
 
 // Get all services for a specific CMDB item
@@ -53,11 +62,42 @@ const updateServiceIcon = (id, iconType, iconPath = null, iconName = null) => {
 };
 
 // Update service status only
-const updateServiceStatus = (id, status) => {
-  return pool.query(
+const updateServiceStatus = async (id, status) => {
+  // Update service status
+  const result = await pool.query(
     'UPDATE services SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
     [status, id]
   );
+
+  // Get workspace_id from service items to propagate status
+  const itemsResult = await pool.query(
+    'SELECT DISTINCT workspace_id FROM service_items WHERE service_id = $1 LIMIT 1',
+    [id]
+  );
+
+  if (itemsResult.rows.length > 0) {
+    const workspaceId = itemsResult.rows[0].workspace_id;
+
+    // Propagate status to service items if status is 'inactive' or 'disabled'
+    if (status === 'inactive' || status === 'disabled') {
+      const updateResult = await pool.query(
+        `UPDATE service_items
+         SET status = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE service_id = $2 AND workspace_id = $3 AND status = 'active'
+         RETURNING *`,
+        [status, id, workspaceId]
+      );
+
+      // Emit socket events for each affected service item
+      const { emitServiceItemStatusUpdate } = getSocketFunctions();
+      for (const item of updateResult.rows) {
+        await emitServiceItemStatusUpdate(item.id, status, workspaceId, id);
+        console.log(`✅ Emitted service item status update: item=${item.id}, status=${status}, service=${id}`);
+      }
+    }
+  }
+
+  return result;
 };
 
 // Delete service (cascade will delete service_items and service_connections)
@@ -137,11 +177,43 @@ const updateServiceItemPosition = (id, position) => {
 };
 
 // Update service item status only
-const updateServiceItemStatus = (id, status) => {
-  return pool.query(
+const updateServiceItemStatus = async (id, status) => {
+  // First, get the service item info
+  const itemResult = await pool.query('SELECT service_id, workspace_id FROM service_items WHERE id = $1', [id]);
+  if (itemResult.rows.length === 0) {
+    return pool.query(
+      'UPDATE service_items SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [status, id]
+    );
+  }
+
+  const { service_id, workspace_id } = itemResult.rows[0];
+
+  // Update the service item status
+  const result = await pool.query(
     'UPDATE service_items SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
     [status, id]
   );
+
+  // Propagate status to other service items in the same service if status is 'inactive' or 'disabled'
+  if (status === 'inactive' || status === 'disabled') {
+    const propagateResult = await pool.query(
+      `UPDATE service_items
+       SET status = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE service_id = $2 AND workspace_id = $3 AND id != $4 AND status = 'active'
+       RETURNING *`,
+      [status, service_id, workspace_id, id]
+    );
+
+    // Emit socket events for each affected service item
+    const { emitServiceItemStatusUpdate } = getSocketFunctions();
+    for (const item of propagateResult.rows) {
+      await emitServiceItemStatusUpdate(item.id, status, workspace_id, service_id);
+      console.log(`✅ Emitted propagated service item status update: item=${item.id}, status=${status}, service=${service_id}`);
+    }
+  }
+
+  return result;
 };
 
 // Delete service item

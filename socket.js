@@ -42,28 +42,35 @@ const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
     return;
   }
   try {
-    // Check if the ID is a service item ID or service ID
-    // by querying the service_items table first
     const pool = require('./db');
-    const itemResult = await pool.query(
-      'SELECT service_id FROM service_items WHERE id = $1',
+
+    // Log input parameters
+    console.log(`🔧 emitServiceUpdate called with: serviceIdOrItemId=${serviceIdOrItemId}, workspaceId=${workspaceId}`);
+
+    // First, check if this ID is a service ID directly (since we're calling from service routes)
+    const serviceResult = await pool.query(
+      'SELECT id FROM services WHERE id = $1',
       [serviceIdOrItemId]
     );
 
     let actualServiceId;
-    if (itemResult.rows.length > 0) {
-      // It's a service item ID, get the service_id
-      actualServiceId = itemResult.rows[0].service_id;
+    if (serviceResult.rows.length > 0) {
+      // It's a service ID
+      actualServiceId = serviceIdOrItemId;
+      console.log(`✅ Confirmed as service ID: ${actualServiceId}`);
     } else {
-      // It might already be a service ID, verify it exists
-      const serviceResult = await pool.query(
-        'SELECT id FROM services WHERE id = $1',
+      // Check if it's a service item ID
+      const itemResult = await pool.query(
+        'SELECT service_id FROM service_items WHERE id = $1',
         [serviceIdOrItemId]
       );
-      if (serviceResult.rows.length > 0) {
-        actualServiceId = serviceIdOrItemId;
+
+      if (itemResult.rows.length > 0) {
+        // It's a service item ID, get the service_id
+        actualServiceId = itemResult.rows[0].service_id;
+        console.log(`✅ Converted from service item ID ${serviceIdOrItemId} to service ID: ${actualServiceId}`);
       } else {
-        console.warn('⚠️ Could not find service or service item for socket emit');
+        console.warn(`⚠️ Could not find service or service item with ID: ${serviceIdOrItemId}`);
         return;
       }
     }

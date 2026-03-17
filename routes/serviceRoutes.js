@@ -238,7 +238,11 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
       return res.json(result.rows[0]);
     }
     const result = await serviceModel.updateServiceStatus(id, status);
+
+    // Log sebelum emit untuk debugging
+    console.log(`🔧 Backend: Emitting service_update for serviceId=${id}, workspaceId=${workspaceId}`);
     await emitServiceUpdate(id, workspaceId);
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
