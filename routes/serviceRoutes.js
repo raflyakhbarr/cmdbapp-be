@@ -300,15 +300,25 @@ router.post('/:serviceId/items', authenticateToken, async (req, res) => {
 // Update service item
 router.put('/items/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { name, type, description, status, ip, domain, port, category, location, group_id } = req.body;
+  const { name, type, description, status, ip, domain, port, category, location, group_id, order_in_group } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: 'name is required' });
   }
 
   try {
-    const result = await serviceModel.updateServiceItem(id, name, type, description, status, ip, domain, port, category, location, group_id);
-    await emitCmdbUpdate(cmdbModel);
+    // Ambil item data sebelum update untuk mendapatkan service_id yang benar
+    const itemBeforeUpdate = await serviceModel.getServiceItemById(id);
+    if (itemBeforeUpdate.rows.length === 0) {
+      return res.status(404).json({ error: 'Service item not found' });
+    }
+
+    const result = await serviceModel.updateServiceItem(id, name, type, description, status, ip, domain, port, category, location, group_id, order_in_group);
+
+    // Emit service update dengan serviceId dan workspaceId dari item SEBELUM update
+    // untuk memastikan konsistensi
+    await emitServiceUpdate(itemBeforeUpdate.rows[0].service_id, itemBeforeUpdate.rows[0].workspace_id);
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -325,7 +335,17 @@ router.put('/items/:id/position', authenticateToken, async (req, res) => {
   }
 
   try {
+    // Ambil item data sebelum update untuk mendapatkan service_id yang benar
+    const itemBeforeUpdate = await serviceModel.getServiceItemById(id);
+    if (itemBeforeUpdate.rows.length === 0) {
+      return res.status(404).json({ error: 'Service item not found' });
+    }
+
     const result = await serviceModel.updateServiceItemPosition(id, position);
+
+    // Emit service update dengan serviceId dan workspaceId dari item SEBELUM update
+    await emitServiceUpdate(itemBeforeUpdate.rows[0].service_id, itemBeforeUpdate.rows[0].workspace_id);
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -369,9 +389,19 @@ router.delete('/items/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
   try {
+    // Get item data first before deleting
+    const itemResult = await serviceModel.getServiceItemById(id);
+    if (itemResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service item not found' });
+    }
+    const item = itemResult.rows[0];
+
     await serviceModel.deleteServiceConnectionsByItemId(id);
     await serviceModel.deleteServiceItem(id);
-    await emitCmdbUpdate(cmdbModel);
+
+    // Emit service update dengan serviceId dan workspaceId
+    await emitServiceUpdate(item.service_id, item.workspace_id);
+
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message });

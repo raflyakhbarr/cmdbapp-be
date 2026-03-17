@@ -118,13 +118,13 @@ const createServiceItem = async (serviceId, name, type, description, position, s
 };
 
 // Update service item
-const updateServiceItem = (id, name, type, description, status, ip, domain, port, category, location, groupId = null) => {
+const updateServiceItem = (id, name, type, description, status, ip, domain, port, category, location, groupId = null, orderInGroup = null) => {
   return pool.query(
     `UPDATE service_items
-     SET name = $1, type = $2, description = $3, status = $4, ip = $5, domain = $6, port = $7, category = $8, location = $9, group_id = $10, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $11
+     SET name = $1, type = $2, description = $3, status = $4, ip = $5, domain = $6, port = $7, category = $8, location = $9, group_id = $10, order_in_group = $11, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $12
      RETURNING *`,
-    [name, type, description, status, ip, domain, port, category, location, groupId, id]
+    [name, type, description, status, ip, domain, port, category, location, groupId, orderInGroup, id]
   );
 };
 
