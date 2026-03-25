@@ -155,6 +155,7 @@ router.put('/between/:sourceId/:targetId', authenticateToken, async (req, res) =
     // Emit socket update for both service items
     await emitServiceUpdate(sourceId, workspace_id);
     await emitServiceUpdate(targetId, workspace_id);
+    await emitCrossServiceConnectionUpdate(sourceId, targetId, workspace_id);
 
     res.json(result.rows[0]);
   } catch (err) {
