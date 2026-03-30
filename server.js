@@ -51,6 +51,7 @@ const serviceGroupRoutes = require('./routes/serviceGroupRoutes');
 const crossServiceConnectionRoutes = require('./routes/crossServiceConnectionRoutes');
 const externalItemRoutes = require('./routes/externalItemRoutes');
 const shareRoutes = require('./routes/shareRoutes');
+const exportImportRoutes = require('./routes/exportImportRoutes');
 
 app.use('/api/cmdb', cmdbRoutes);
 app.use('/api/groups', groupRoutes);
@@ -64,6 +65,7 @@ app.use('/api/service-groups', serviceGroupRoutes);
 app.use('/api/cross-service-connections', crossServiceConnectionRoutes);
 app.use('/api/external-item-positions', externalItemRoutes);
 app.use('/api/share', shareRoutes);
+app.use('/api', exportImportRoutes);
 
 const PORT = process.env.PORT;
 server.listen(PORT, () => {
