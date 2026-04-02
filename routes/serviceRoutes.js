@@ -332,7 +332,7 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
 // Update service item position
 router.put('/items/:id/position', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { position } = req.body;
+  const { position, skipRefresh } = req.body;
 
   if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') {
     return res.status(400).json({ error: 'Invalid position format' });
@@ -347,8 +347,14 @@ router.put('/items/:id/position', authenticateToken, async (req, res) => {
 
     const result = await serviceModel.updateServiceItemPosition(id, position);
 
-    // Emit service update dengan serviceId dan workspaceId dari item SEBELUM update
-    await emitServiceUpdate(itemBeforeUpdate.rows[0].service_id, itemBeforeUpdate.rows[0].workspace_id);
+    // Hanya emit service update jika skipRefresh tidak true
+    // skipRefresh digunakan untuk mencegah socket event ke services lain
+    if (!skipRefresh) {
+      // Emit service update dengan serviceId dan workspaceId dari item SEBELUM update
+      await emitServiceUpdate(itemBeforeUpdate.rows[0].service_id, itemBeforeUpdate.rows[0].workspace_id);
+    } else {
+      console.log(`⏭️ Skipping service update emit for item ${id} (skipRefresh=true)`);
+    }
 
     res.json(result.rows[0]);
   } catch (err) {

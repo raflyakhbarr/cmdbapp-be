@@ -16,11 +16,21 @@ const createGroup = (name, description, color = '#e0e7ff', position = null, work
     [name, description, color, position, workspaceId]
   );
 
-const updateGroup = (id, name, description, color, position) =>
-  pool.query(
-    'UPDATE cmdb_groups SET name = $1, description = $2, color = $3, position = $4 WHERE id = $5 RETURNING *',
-    [name, description, color, position ? JSON.stringify(position) : null, id]
-  );
+const updateGroup = async (id, name, description, color, position) => {
+  // Only update position if it's provided (not null/undefined)
+  if (position !== undefined && position !== null) {
+    return pool.query(
+      'UPDATE cmdb_groups SET name = $1, description = $2, color = $3, position = $4 WHERE id = $5 RETURNING *',
+      [name, description, color, JSON.stringify(position), id]
+    );
+  } else {
+    // Don't update position, keep the existing value
+    return pool.query(
+      'UPDATE cmdb_groups SET name = $1, description = $2, color = $3 WHERE id = $4 RETURNING *',
+      [name, description, color, id]
+    );
+  }
+};
 
 const deleteGroup = (id) => pool.query('DELETE FROM cmdb_groups WHERE id = $1', [id]);
 

@@ -22,14 +22,26 @@ const createServiceGroup = (serviceId, name, description, color, position, works
   );
 };
 
-const updateServiceGroup = (id, name, description, color, position) => {
-  return pool.query(
-    `UPDATE service_groups
-     SET name = $1, description = $2, color = $3, position = $4
-     WHERE id = $5
-     RETURNING *`,
-    [name, description, color, position ? JSON.stringify(position) : null, id]
-  );
+const updateServiceGroup = async (id, name, description, color, position) => {
+  // Only update position if it's provided (not null/undefined)
+  if (position !== undefined && position !== null) {
+    return pool.query(
+      `UPDATE service_groups
+       SET name = $1, description = $2, color = $3, position = $4
+       WHERE id = $5
+       RETURNING *`,
+      [name, description, color, JSON.stringify(position), id]
+    );
+  } else {
+    // Don't update position, keep the existing value
+    return pool.query(
+      `UPDATE service_groups
+       SET name = $1, description = $2, color = $3
+       WHERE id = $4
+       RETURNING *`,
+      [name, description, color, id]
+    );
+  }
 };
 
 const deleteServiceGroup = (id) => {
