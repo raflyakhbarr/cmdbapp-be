@@ -295,16 +295,18 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { name, type, description, status, ip, category, location, group_id, env_type, storage, alias, port } = req.body;
 
   try {
-    if (status) {
-      await cmdbModel.updateItemStatus(id, status);
-    }
+    // Get current item to check if status exists
+    const currentResult = await cmdbModel.getItemById(id);
+    const currentItem = currentResult.rows[0];
+    const currentStatus = currentItem ? currentItem.status : 'active';
 
+    // Update item without status first (to avoid double status update)
     const result = await cmdbModel.updateItem(
       id,
       name,
       type,
       description,
-      status || 'active',
+      currentStatus, // Use current status, don't update yet
       ip,
       category,
       location,
@@ -314,8 +316,22 @@ router.put('/:id', authenticateToken, async (req, res) => {
       alias || null,
       port || null
     );
+
+    // Then update status separately with propagation if status is being changed
+    if (status && status !== currentStatus) {
+      await cmdbModel.updateItemStatus(id, status);
+    }
+
     await emitCmdbUpdate(cmdbModel);
-    res.json(result.rows[0]);
+
+    // Return the updated item WITH services (so frontend gets the updated service statuses)
+    const finalResult = await cmdbModel.getItemById(id);
+    const servicesResult = await serviceModel.getServicesByItemId(id);
+
+    res.json({
+      ...finalResult.rows[0],
+      services: servicesResult.rows
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
