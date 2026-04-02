@@ -258,7 +258,7 @@ router.post('/edge-handles/bulk', authenticateToken, async (req, res) => {
 // Upsert single cross-service edge handle
 router.put('/edge-handles/:edgeId', authenticateToken, async (req, res) => {
   const { edgeId } = req.params;
-  const { sourceServiceId, targetServiceId, sourceHandle, targetHandle, workspaceId } = req.body;
+  const { sourceServiceId, targetServiceId, viewingServiceId, sourceHandle, targetHandle, workspaceId, skipRefresh } = req.body;
 
   if (!sourceServiceId || !targetServiceId || !sourceHandle || !targetHandle || !workspaceId) {
     return res.status(400).json({
@@ -271,10 +271,19 @@ router.put('/edge-handles/:edgeId', authenticateToken, async (req, res) => {
       edgeId,
       sourceServiceId,
       targetServiceId,
+      viewingServiceId, // Service yang sedang melihat/viewing
       sourceHandle,
       targetHandle,
       workspaceId
     );
+
+    // Hanya emit socket update jika skipRefresh tidak true
+    if (!skipRefresh) {
+      const { emitCrossServiceConnectionUpdate } = require('../socket');
+      // Emit ke keduanya untuk update edge handles visualization
+      await emitCrossServiceConnectionUpdate(sourceServiceId, targetServiceId, workspaceId);
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

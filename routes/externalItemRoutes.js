@@ -99,4 +99,26 @@ router.delete('/service/:serviceId/clear', authenticateToken, async (req, res) =
   }
 });
 
+// Batch create default positions for external items (auto-layout)
+router.post('/batch-auto-layout', authenticateToken, async (req, res) => {
+  const { workspaceId, serviceId, externalServiceItemIds } = req.body;
+
+  if (!workspaceId || !serviceId || !externalServiceItemIds || !Array.isArray(externalServiceItemIds)) {
+    return res.status(400).json({
+      error: 'workspaceId, serviceId, and externalServiceItemIds (array) are required'
+    });
+  }
+
+  try {
+    const result = await externalItemModel.batchCreateDefaultPositions(
+      workspaceId,
+      serviceId,
+      externalServiceItemIds
+    );
+    res.status(201).json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

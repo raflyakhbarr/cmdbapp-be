@@ -16,19 +16,19 @@ const getCrossServiceEdgeHandlesByConnection = (sourceServiceId, targetServiceId
     [sourceServiceId, targetServiceId, workspaceId]
   );
 
-// Upsert cross-service edge handle
-const upsertCrossServiceEdgeHandle = async (edgeId, sourceServiceId, targetServiceId, sourceHandle, targetHandle, workspaceId) => {
+// Upsert cross-service edge handle dengan viewing service context
+const upsertCrossServiceEdgeHandle = async (edgeId, sourceServiceId, targetServiceId, viewingServiceId, sourceHandle, targetHandle, workspaceId) => {
   const result = await pool.query(
-    `INSERT INTO cross_service_edge_handles (edge_id, source_service_id, target_service_id, source_handle, target_handle, workspace_id, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-     ON CONFLICT (edge_id, source_service_id, target_service_id)
+    `INSERT INTO cross_service_edge_handles (edge_id, source_service_id, target_service_id, viewing_service_id, source_handle, target_handle, workspace_id, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+     ON CONFLICT (edge_id, source_service_id, target_service_id, viewing_service_id)
      DO UPDATE SET
-       source_handle = $4,
-       target_handle = $5,
-       workspace_id = $6,
+       source_handle = $5,
+       target_handle = $6,
+       workspace_id = $7,
        updated_at = CURRENT_TIMESTAMP
      RETURNING *`,
-    [edgeId, sourceServiceId, targetServiceId, sourceHandle, targetHandle, workspaceId]
+    [edgeId, sourceServiceId, targetServiceId, viewingServiceId, sourceHandle, targetHandle, workspaceId]
   );
   return result;
 };
@@ -37,7 +37,7 @@ const upsertCrossServiceEdgeHandle = async (edgeId, sourceServiceId, targetServi
 const deleteCrossServiceEdgeHandle = (edgeId) =>
   pool.query('DELETE FROM cross_service_edge_handles WHERE edge_id = $1', [edgeId]);
 
-// Bulk upsert cross-service edge handles
+// Bulk upsert cross-service edge handles dengan viewing service support
 const bulkUpsertCrossServiceEdgeHandles = async (edgeHandles, workspaceId) => {
   if (!edgeHandles || Object.keys(edgeHandles).length === 0) {
     return { rows: [] };
@@ -50,16 +50,16 @@ const bulkUpsertCrossServiceEdgeHandles = async (edgeHandles, workspaceId) => {
     const results = [];
     for (const [edgeId, handles] of Object.entries(edgeHandles)) {
       const result = await client.query(
-        `INSERT INTO cross_service_edge_handles (edge_id, source_service_id, target_service_id, source_handle, target_handle, workspace_id, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-         ON CONFLICT (edge_id, source_service_id, target_service_id)
+        `INSERT INTO cross_service_edge_handles (edge_id, source_service_id, target_service_id, viewing_service_id, source_handle, target_handle, workspace_id, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+         ON CONFLICT (edge_id, source_service_id, target_service_id, viewing_service_id)
          DO UPDATE SET
-           source_handle = $4,
-           target_handle = $5,
-           workspace_id = $6,
+           source_handle = $5,
+           target_handle = $6,
+           workspace_id = $7,
            updated_at = CURRENT_TIMESTAMP
          RETURNING *`,
-        [edgeId, handles.sourceServiceId, handles.targetServiceId, handles.sourceHandle, handles.targetHandle, workspaceId]
+        [edgeId, handles.sourceServiceId, handles.targetServiceId, handles.viewingServiceId, handles.sourceHandle, handles.targetHandle, workspaceId]
       );
       results.push(result.rows[0]);
     }

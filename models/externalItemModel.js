@@ -49,6 +49,53 @@ const clearExternalPositionsByService = (workspaceId, serviceId) => {
   );
 };
 
+// Batch create default positions dengan auto-layout (grid pattern)
+const batchCreateDefaultPositions = (workspaceId, serviceId, externalServiceItemIds) => {
+  // Gunakan PostgreSQL function untuk efficient batch insert
+  return pool.query(
+    `SELECT
+      id,
+      external_service_item_id,
+      item_position AS position
+    FROM create_default_external_positions($1, $2, $3)`,
+    [workspaceId, serviceId, externalServiceItemIds]
+  );
+};
+
+// Get or create external item position (with auto-layout fallback)
+const getOrCreateExternalItemPosition = async (workspaceId, serviceId, externalServiceItemId) => {
+  // Coba ambil posisi yang sudah ada
+  const existing = await pool.query(
+    `SELECT position FROM external_item_positions
+     WHERE workspace_id = $1 AND service_id = $2 AND external_service_item_id = $3`,
+    [workspaceId, serviceId, externalServiceItemId]
+  );
+
+  if (existing.rows.length > 0) {
+    return existing.rows[0];
+  }
+
+  // Jika belum ada, create default position dengan auto-layout
+  const result = await pool.query(
+    `INSERT INTO external_item_positions
+       (workspace_id, service_id, external_service_item_id, position, is_auto_layouted, layout_hash)
+     VALUES ($1, $2, $3,
+       jsonb_build_object(
+         'x', 500 + (floor(random() * 10)::int % 4) * 200,
+         'y', 100 + floor(random() * 10)::int * 150
+       ),
+       true,
+       md5($2 || '-' || $3 || '-' || extract(epoch from now))
+     )
+     ON CONFLICT (workspace_id, service_id, external_service_item_id)
+     DO UPDATE SET position = external_item_positions.position
+     RETURNING *`,
+    [workspaceId, serviceId, externalServiceItemId]
+  );
+
+  return result.rows[0];
+};
+
 // Cross-service edge handles functions
 const getCrossServiceEdgeHandle = (edgeId, sourceServiceId, targetServiceId) => {
   return pool.query(
@@ -83,6 +130,8 @@ module.exports = {
   saveExternalItemPosition,
   deleteExternalItemPosition,
   clearExternalPositionsByService,
+  getOrCreateExternalItemPosition,
+  batchCreateDefaultPositions,
   getCrossServiceEdgeHandle,
   getCrossServiceEdgeHandlesByService,
   saveCrossServiceEdgeHandle,
