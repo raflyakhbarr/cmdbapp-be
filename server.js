@@ -52,8 +52,10 @@ const crossServiceConnectionRoutes = require('./routes/crossServiceConnectionRou
 const externalItemRoutes = require('./routes/externalItemRoutes');
 const shareRoutes = require('./routes/shareRoutes');
 const exportImportRoutes = require('./routes/exportImportRoutes');
+const layananRoutes = require('./routes/layananRoutes');
 
 app.use('/api/cmdb', cmdbRoutes);
+app.use('/api/layanan', layananRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/edge-handles', edgeHandleRoutes);
 app.use('/api/workspaces', workspaceRoutes);
