@@ -196,6 +196,71 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Update service position (as independent node)
+router.put('/:id/position', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { position, skipEmit } = req.body;
+
+  if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') {
+    return res.status(400).json({ error: 'Invalid position format' });
+  }
+
+  try {
+    const result = await serviceModel.updateServicePosition(id, position);
+
+    if (!skipEmit) {
+      await emitCmdbUpdate(cmdbModel);
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update service dimensions
+router.put('/:id/dimensions', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { width, height } = req.body;
+
+  if (typeof width !== 'number' || typeof height !== 'number') {
+    return res.status(400).json({ error: 'Invalid dimensions format' });
+  }
+
+  try {
+    const result = await serviceModel.updateServiceDimensions(id, width, height);
+    await emitCmdbUpdate(cmdbModel);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle service expanded state
+router.patch('/:id/toggle-expanded', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await serviceModel.toggleServiceExpanded(id);
+    await emitCmdbUpdate(cmdbModel);
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all services for workspace (as nodes)
+router.get('/workspace/:workspaceId', authenticateToken, async (req, res) => {
+  const { workspaceId } = req.params;
+
+  try {
+    const result = await serviceModel.getServicesWithItemCounts(workspaceId);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Update service status only
 router.patch('/:id/status', authenticateToken, async (req, res) => {
   const { id } = req.params;

@@ -28,14 +28,26 @@ const getServiceById = (id) => {
 };
 
 // Create a new service
-const createService = (cmdbItemId, name, status = 'active', iconType = 'preset', iconPath = null, iconName = null, description = null) => {
+const createService = async (cmdbItemId, name, status = 'active', iconType = 'preset', iconPath = null, iconName = null, description = null) => {
+  // Get workspace_id from parent cmdb_item
+  const cmdbItemResult = await pool.query(
+    'SELECT workspace_id FROM cmdb_items WHERE id = $1',
+    [cmdbItemId]
+  );
+
+  if (cmdbItemResult.rows.length === 0) {
+    throw new Error('CMDB item not found');
+  }
+
+  const workspaceId = cmdbItemResult.rows[0].workspace_id;
+
   return pool.query(
     `INSERT INTO services (
-      cmdb_item_id, name, status, icon_type, icon_path, icon_name, description
+      cmdb_item_id, workspace_id, name, status, icon_type, icon_path, icon_name, description
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *`,
-    [cmdbItemId, name, status, iconType, iconPath, iconName, description]
+    [cmdbItemId, workspaceId, name, status, iconType, iconPath, iconName, description]
   );
 };
 
@@ -58,6 +70,44 @@ const updateServiceIcon = (id, iconType, iconPath = null, iconName = null) => {
      WHERE id = $4
      RETURNING *`,
     [iconType, iconPath, iconName, id]
+  );
+};
+
+// Update service position (as independent node)
+const updateServicePosition = (id, position) => {
+  return pool.query(
+    'UPDATE services SET position = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+    [JSON.stringify(position), id]
+  );
+};
+
+// Update service dimensions
+const updateServiceDimensions = (id, width, height) => {
+  return pool.query(
+    'UPDATE services SET width = $1, height = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *',
+    [width, height, id]
+  );
+};
+
+// Toggle service expanded state
+const toggleServiceExpanded = (id) => {
+  return pool.query(
+    'UPDATE services SET is_expanded = NOT is_expanded, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+    [id]
+  );
+};
+
+// Get services with item counts for a workspace
+const getServicesWithItemCounts = (workspaceId) => {
+  return pool.query(
+    `SELECT s.*,
+            COUNT(si.id) FILTER (WHERE si.id IS NOT NULL) as service_items_count
+     FROM services s
+     LEFT JOIN service_items si ON s.id = si.service_id AND si.workspace_id = $1
+     WHERE s.workspace_id = $1
+     GROUP BY s.id
+     ORDER BY s.created_at`,
+    [workspaceId]
   );
 };
 
@@ -277,7 +327,11 @@ module.exports = {
   updateService,
   updateServiceIcon,
   updateServiceStatus,
+  updateServicePosition,
+  updateServiceDimensions,
+  toggleServiceExpanded,
   deleteService,
+  getServicesWithItemCounts,
 
   // Service Items
   getAllServiceItems,
