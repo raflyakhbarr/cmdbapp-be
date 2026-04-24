@@ -314,6 +314,176 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
+// NEW: Manually trigger recursive propagation from a service
+router.post('/:id/propagate-status', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { status, max_depth = 10 } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ error: 'status is required' });
+  }
+
+  const validStatuses = ['active', 'inactive', 'maintenance', 'disabled', 'decommissioned'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, maintenance, disabled, or decommissioned' });
+  }
+
+  try {
+    // Get service first
+    const serviceResult = await serviceModel.getServiceById(id);
+    if (serviceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    const service = serviceResult.rows[0];
+
+    // Try to get workspace_id from service items first
+    let workspaceId = null;
+    const itemsResult = await serviceModel.getAllServiceItems(id, null);
+
+    if (itemsResult.rows.length > 0) {
+      workspaceId = itemsResult.rows[0].workspace_id;
+    } else {
+      // If no service items, get workspace_id from cmdb_item
+      const cmdbModel = require('../models/cmdbModel');
+      const cmdbResult = await cmdbModel.getItemById(service.cmdb_item_id);
+      if (cmdbResult.rows.length > 0) {
+        workspaceId = cmdbResult.rows[0].workspace_id;
+      }
+    }
+
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Could not determine workspace_id for service' });
+    }
+
+    // First update the service status itself
+    await serviceModel.updateServiceStatus(id, status);
+
+    // Then trigger recursive propagation to connected services
+    console.log(`🔄 Manual recursive propagation triggered for service ${id} with status ${status}, max_depth=${max_depth}`);
+    const affectedServices = await serviceModel.propagateStatusToConnectedServices(
+      id,
+      status,
+      workspaceId,
+      new Set([id]), // Start with current service already visited
+      0,
+      max_depth
+    );
+
+    // Emit socket update for the workspace
+    await emitCmdbUpdate(cmdbModel);
+
+    res.json({
+      message: 'Recursive propagation completed successfully',
+      source_service_id: parseInt(id),
+      status,
+      workspace_id: workspaceId,
+      affected_services: affectedServices,
+      total_affected: affectedServices.length
+    });
+  } catch (err) {
+    console.error('Error during manual recursive propagation:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// NEW: Get propagation preview (show what would be affected without actually propagating)
+router.get('/:id/propagation-preview', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.query;
+
+  try {
+    // Get service first
+    const serviceResult = await serviceModel.getServiceById(id);
+    if (serviceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    const service = serviceResult.rows[0];
+
+    // Try to get workspace_id from service items first
+    let workspaceId = null;
+    const itemsResult = await serviceModel.getAllServiceItems(id, null);
+
+    if (itemsResult.rows.length > 0) {
+      workspaceId = itemsResult.rows[0].workspace_id;
+    } else {
+      // If no service items, get workspace_id from cmdb_item
+      const cmdbModel = require('../models/cmdbModel');
+      const cmdbResult = await cmdbModel.getItemById(service.cmdb_item_id);
+      if (cmdbResult.rows.length > 0) {
+        workspaceId = cmdbResult.rows[0].workspace_id;
+      }
+    }
+
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Could not determine workspace_id for service' });
+    }
+
+    // Get all service-to-service connections from this service
+    const pool = require('../db');
+    const connectionsResult = await pool.query(
+      `SELECT stsc.target_service_id, s.name as target_service_name, s.status as target_service_status,
+              stsc.connection_type, stsc.propagation, stsc.direction
+       FROM service_to_service_connections stsc
+       INNER JOIN services s ON stsc.target_service_id = s.id
+       WHERE stsc.source_service_id = $1 AND stsc.workspace_id = $2
+       ORDER BY stsc.created_at`,
+      [id, workspaceId]
+    );
+
+    // Analyze which services would be affected
+    const wouldBeAffected = [];
+    const wouldNotBeAffected = [];
+
+    for (const connection of connectionsResult.rows) {
+      const shouldPropagate =
+        (connection.propagation === 'source_to_target' || connection.propagation === 'both') &&
+        (status === 'inactive' || status === 'disabled' || status === 'maintenance');
+
+      const onlyIfActive = connection.target_service_status === 'active';
+
+      if (shouldPropagate && onlyIfActive) {
+        wouldBeAffected.push({
+          service_id: connection.target_service_id,
+          service_name: connection.target_service_name,
+          current_status: connection.target_service_status,
+          would_become: status,
+          connection_type: connection.connection_type,
+          propagation: connection.propagation,
+          direction: connection.direction
+        });
+      } else {
+        wouldNotBeAffected.push({
+          service_id: connection.target_service_id,
+          service_name: connection.target_service_name,
+          current_status: connection.target_service_status,
+          reason: !shouldPropagate ? 'Propagation not enabled for this connection type' : 'Target service not active',
+          connection_type: connection.connection_type,
+          propagation: connection.propagation
+        });
+      }
+    }
+
+    res.json({
+      source_service: {
+        id: service.id,
+        name: service.name,
+        current_status: service.status,
+        proposed_status: status
+      },
+      would_be_affected: wouldBeAffected,
+      would_not_be_affected: wouldNotBeAffected,
+      total_connections: connectionsResult.rows.length,
+      summary: {
+        would_propagate_to: wouldBeAffected.length,
+        would_skip: wouldNotBeAffected.length
+      }
+    });
+  } catch (err) {
+    console.error('Error getting propagation preview:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== SERVICE ITEMS ROUTES ====================
 
 // Get all service items

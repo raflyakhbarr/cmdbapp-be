@@ -9,6 +9,15 @@ const getSocketFunctions = () => {
   return socketFunctions;
 };
 
+// Lazy load service-to-service connection model to avoid circular dependency
+let serviceToServiceConnectionModel = null;
+const getServiceToServiceConnectionModel = () => {
+  if (!serviceToServiceConnectionModel) {
+    serviceToServiceConnectionModel = require('./serviceToServiceConnectionModel');
+  }
+  return serviceToServiceConnectionModel;
+};
+
 // ==================== SERVICES CRUD ====================
 
 // Get all services for a specific CMDB item
@@ -111,7 +120,127 @@ const getServicesWithItemCounts = (workspaceId) => {
   );
 };
 
-// Update service status only
+// ==================== RECURSIVE SERVICE PROPAGATION ====================
+
+/**
+ * Recursively propagate status changes through service-to-service connections
+ * @param {number} serviceId - The service whose status changed
+ * @param {string} status - The new status to propagate
+ * @param {number} workspaceId - The workspace ID
+ * @param {Set} visitedServices - Set of already visited service IDs (to prevent cycles)
+ * @param {number} depth - Current recursion depth (for safety)
+ * @param {number} maxDepth - Maximum recursion depth (default: 10)
+ * @returns {Array} - Array of affected service IDs
+ */
+const propagateStatusToConnectedServices = async (
+  serviceId,
+  status,
+  workspaceId,
+  visitedServices = new Set(),
+  depth = 0,
+  maxDepth = 10
+) => {
+  // Safety check: prevent infinite recursion
+  if (depth >= maxDepth) {
+    console.warn(`⚠️ Max recursion depth (${maxDepth}) reached for service ${serviceId}`);
+    return [];
+  }
+
+  // Mark current service as visited
+  visitedServices.add(serviceId);
+
+  const affectedServices = [];
+  const connectionModel = getServiceToServiceConnectionModel();
+
+  try {
+    // Get all outgoing connections from this service
+    const connectionsResult = await pool.query(
+      `SELECT stsc.target_service_id, s.name as target_service_name, s.status as target_service_status,
+              stsc.connection_type, stsc.propagation
+       FROM service_to_service_connections stsc
+       INNER JOIN services s ON stsc.target_service_id = s.id
+       WHERE stsc.source_service_id = $1 AND stsc.workspace_id = $2
+       ORDER BY stsc.created_at`,
+      [serviceId, workspaceId]
+    );
+
+    // Process each connection
+    for (const connection of connectionsResult.rows) {
+      const targetServiceId = connection.target_service_id;
+
+      // Skip if already visited (prevent cycles)
+      if (visitedServices.has(targetServiceId)) {
+        console.log(`🔄 Skipping already visited service ${targetServiceId}`);
+        continue;
+      }
+
+      // Check if propagation should happen based on propagation setting
+      const shouldPropagate =
+        (connection.propagation === 'source_to_target' || connection.propagation === 'both') &&
+        (status === 'inactive' || status === 'disabled' || status === 'maintenance');
+
+      if (!shouldPropagate) {
+        console.log(`⏭️ Skipping propagation to ${connection.target_service_name} (propagation=${connection.propagation}, status=${status})`);
+        continue;
+      }
+
+      // Only propagate if target service is currently active (to avoid overwriting manual changes)
+      if (connection.target_service_status !== 'active') {
+        console.log(`⏭️ Skipping ${connection.target_service_name} (current status: ${connection.target_service_status})`);
+        continue;
+      }
+
+      // Update target service status
+      console.log(`🔄 Propagating status ${status} from service ${serviceId} to ${connection.target_service_name} (${targetServiceId})`);
+
+      await pool.query(
+        'UPDATE services SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [status, targetServiceId]
+      );
+
+      // Also propagate to service items within the target service
+      const serviceItemsResult = await pool.query(
+        `UPDATE service_items
+         SET status = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE service_id = $2 AND workspace_id = $3 AND status = 'active'
+         RETURNING id`,
+        [status, targetServiceId, workspaceId]
+      );
+
+      // Emit socket events for the target service
+      const { emitServiceUpdate, emitServiceItemStatusUpdate } = getSocketFunctions();
+      await emitServiceUpdate(targetServiceId, workspaceId);
+      console.log(`✅ Emitted service update: service=${targetServiceId}, status=${status}`);
+
+      // Emit socket events for affected service items
+      for (const item of serviceItemsResult.rows) {
+        await emitServiceItemStatusUpdate(item.id, status, workspaceId, targetServiceId);
+        console.log(`✅ Emitted service item status update: item=${item.id}, status=${status}, service=${targetServiceId}`);
+      }
+
+      affectedServices.push(targetServiceId);
+
+      // Recursively propagate to connected services
+      const nestedAffectedServices = await propagateStatusToConnectedServices(
+        targetServiceId,
+        status,
+        workspaceId,
+        visitedServices,
+        depth + 1,
+        maxDepth
+      );
+
+      affectedServices.push(...nestedAffectedServices);
+    }
+
+    return affectedServices;
+  } catch (error) {
+    console.error(`❌ Error propagating status from service ${serviceId}:`, error);
+    throw error;
+  }
+};
+
+// Update service status only with recursive propagation
 const updateServiceStatus = async (id, status) => {
   // Update service status
   const result = await pool.query(
@@ -119,17 +248,31 @@ const updateServiceStatus = async (id, status) => {
     [status, id]
   );
 
-  // Get workspace_id from service items to propagate status
+  // Get workspace_id - try service items first, fall back to service's workspace_id
+  let workspaceId = null;
   const itemsResult = await pool.query(
     'SELECT DISTINCT workspace_id FROM service_items WHERE service_id = $1 LIMIT 1',
     [id]
   );
 
   if (itemsResult.rows.length > 0) {
-    const workspaceId = itemsResult.rows[0].workspace_id;
+    workspaceId = itemsResult.rows[0].workspace_id;
+  } else {
+    // If no service items, get workspace_id from the service itself
+    const serviceResult = await pool.query(
+      'SELECT workspace_id FROM services WHERE id = $1',
+      [id]
+    );
+    if (serviceResult.rows.length > 0) {
+      workspaceId = serviceResult.rows[0].workspace_id;
+      console.log(`ℹ️ Service ${id} has no service items, using workspace_id from service: ${workspaceId}`);
+    }
+  }
 
-    // Propagate status to service items if status is 'inactive' or 'disabled'
-    if (status === 'inactive' || status === 'disabled') {
+  // Only propagate if we have a workspace_id and status is 'inactive' or 'disabled'
+  if (workspaceId && (status === 'inactive' || status === 'disabled' || status === 'maintenance')) {
+    // First propagate to service items if any exist
+    if (itemsResult.rows.length > 0) {
       const updateResult = await pool.query(
         `UPDATE service_items
          SET status = $1, updated_at = CURRENT_TIMESTAMP
@@ -145,6 +288,19 @@ const updateServiceStatus = async (id, status) => {
         console.log(`✅ Emitted service item status update: item=${item.id}, status=${status}, service=${id}`);
       }
     }
+
+    // NEW: Recursively propagate to connected services (even if no service items)
+    console.log(`🔄 Starting recursive propagation from service ${id} with status ${status}`);
+    const affectedServices = await propagateStatusToConnectedServices(
+      id,
+      status,
+      workspaceId,
+      new Set([id]), // Start with current service already visited
+      0,
+      10 // Max depth
+    );
+
+    console.log(`✅ Recursive propagation complete. Affected ${affectedServices.length} services:`, affectedServices);
   }
 
   return result;
@@ -348,4 +504,7 @@ module.exports = {
   updateServiceConnection,
   deleteServiceConnection,
   deleteServiceConnectionsByItemId,
+
+  // Recursive Propagation
+  propagateStatusToConnectedServices,
 };
