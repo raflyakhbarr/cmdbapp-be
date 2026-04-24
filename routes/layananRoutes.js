@@ -11,6 +11,7 @@ const {
   getAllLayananConnections,
   createLayananConnection,
   deleteLayananConnection,
+  updateLayananConnection,
   deleteLayananConnectionsBySource,
   deleteLayananConnectionsByTarget,
 } = require('../models/layananModel');
@@ -62,17 +63,40 @@ router.get('/connections', async (req, res) => {
 // POST /api/layanan/connections - Create layanan connection (MUST BE BEFORE /:id)
 router.post('/connections', async (req, res) => {
   try {
-    const { source_type, source_id, target_type, target_id, workspace_id, connection_type } = req.body;
+    const { source_type, source_id, target_type, target_id, workspace_id, connection_type, propagation_enabled } = req.body;
 
     if (!source_type || !source_id || !target_type || !target_id || !workspace_id) {
       return res.status(400).json({ error: 'source_type, source_id, target_type, target_id, and workspace_id are required' });
     }
 
-    const result = await createLayananConnection(source_type, source_id, target_type, target_id, workspace_id, connection_type);
+    const result = await createLayananConnection(source_type, source_id, target_type, target_id, workspace_id, connection_type, propagation_enabled);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Error creating connection:', err);
     res.status(500).json({ error: 'Failed to create connection' });
+  }
+});
+
+// PUT /api/layanan/connections/:id - Update layanan connection (MUST BE BEFORE /:id)
+router.put('/connections/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { propagation_enabled } = req.body;
+
+    if (propagation_enabled === undefined) {
+      return res.status(400).json({ error: 'propagation_enabled is required' });
+    }
+
+    const result = await updateLayananConnection(id, propagation_enabled);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Layanan connection not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating layanan connection:', err);
+    res.status(500).json({ error: 'Failed to update layanan connection' });
   }
 });
 

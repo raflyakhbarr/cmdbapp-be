@@ -51,15 +51,24 @@ const getAllLayananConnections = (workspaceId) => {
   );
 };
 
-const createLayananConnection = (source_type, source_id, target_type, target_id, workspace_id, connection_type = 'connects_to') =>
+const createLayananConnection = (source_type, source_id, target_type, target_id, workspace_id, connection_type = 'connects_to', propagation_enabled = true) =>
   pool.query(
-    `INSERT INTO layanan_connections(source_type, source_id, target_type, target_id, workspace_id, connection_type)
-     VALUES($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [source_type, source_id, target_type, target_id, workspace_id, connection_type]
+    `INSERT INTO layanan_connections(source_type, source_id, target_type, target_id, workspace_id, connection_type, propagation_enabled)
+     VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [source_type, source_id, target_type, target_id, workspace_id, connection_type, propagation_enabled]
   );
 
 const deleteLayananConnection = (id) =>
   pool.query('DELETE FROM layanan_connections WHERE id = $1', [id]);
+
+const updateLayananConnection = (id, propagation_enabled) =>
+  pool.query(
+    `UPDATE layanan_connections
+     SET propagation_enabled = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2
+     RETURNING *`,
+    [propagation_enabled, id]
+  );
 
 const deleteLayananConnectionsBySource = (source_type, source_id) =>
   pool.query(
@@ -84,6 +93,7 @@ module.exports = {
   getAllLayananConnections,
   createLayananConnection,
   deleteLayananConnection,
+  updateLayananConnection,
   deleteLayananConnectionsBySource,
   deleteLayananConnectionsByTarget,
 };
