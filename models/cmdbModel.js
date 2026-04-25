@@ -69,42 +69,21 @@ const updateItemStatus = async (id, status) => {
 
     await client.query('COMMIT');
 
-    // Propagate status to services if status is 'inactive' (outside transaction)
-    if (status === 'inactive') {
+    // Propagate status to services if status is 'inactive', 'maintenance', or 'disabled' (outside transaction)
+    if (status === 'inactive' || status === 'maintenance' || status === 'disabled') {
       // Get all services associated with this CMDB item
       const servicesResult = await pool.query(
         'SELECT id FROM services WHERE cmdb_item_id = $1',
         [id]
       );
 
-      // Update all services to 'inactive' and propagate to service items
+      // Import serviceModel to use updateServiceStatus with recursive propagation
+      const serviceModel = require('./serviceModel');
+
+      // Update all services and trigger recursive propagation
       for (const service of servicesResult.rows) {
-        // Update service status
-        await pool.query(
-          'UPDATE services SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-          [status, service.id]
-        );
-
-        // Update all service items in this service to 'inactive' (use workspace_id from CMDB item)
-        const itemsResult = await pool.query(
-          `UPDATE service_items
-           SET status = $1, updated_at = CURRENT_TIMESTAMP
-           WHERE service_id = $2 AND workspace_id = $3 AND status = 'active'
-           RETURNING id`,
-          [status, service.id, workspaceId]
-        );
-
-        // Emit socket events for each affected service item
-        const { emitServiceItemStatusUpdate } = getSocketFunctions();
-        for (const item of itemsResult.rows) {
-          await emitServiceItemStatusUpdate(item.id, status, workspaceId, service.id);
-          console.log(`✅ [CMDB->Service->Item] Propagated status: cmdb=${id} -> service=${service.id} -> item=${item.id}, status=${status}`);
-        }
-
-        // Emit service update event
-        const { emitServiceUpdate } = getSocketFunctions();
-        await emitServiceUpdate(service.id, workspaceId);
-        console.log(`✅ [CMDB->Service] Propagated status: cmdb=${id} -> service=${service.id}, status=${status}`);
+        // Use updateServiceStatus to trigger recursive propagation to connected services
+        await serviceModel.updateServiceStatus(service.id, status);
       }
     }
 
