@@ -401,6 +401,11 @@ const updateServiceItemStatus = async (id, status) => {
     [status, id]
   );
 
+  // Emit socket event for the main service item status update
+  const { emitServiceItemStatusUpdate } = getSocketFunctions();
+  await emitServiceItemStatusUpdate(id, status, workspace_id, service_id);
+  console.log(`✅ Emitted service item status update: item=${id}, status=${status}, service=${service_id}`);
+
   // Propagate status to other service items in the same service if status is 'inactive' or 'disabled'
   if (status === 'inactive' || status === 'disabled') {
     const propagateResult = await pool.query(
@@ -412,7 +417,6 @@ const updateServiceItemStatus = async (id, status) => {
     );
 
     // Emit socket events for each affected service item
-    const { emitServiceItemStatusUpdate } = getSocketFunctions();
     for (const item of propagateResult.rows) {
       await emitServiceItemStatusUpdate(item.id, status, workspace_id, service_id);
       console.log(`✅ Emitted propagated service item status update: item=${item.id}, status=${status}, service=${service_id}`);

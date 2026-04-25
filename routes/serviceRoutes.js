@@ -558,6 +558,13 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
     // untuk memastikan konsistensi
     await emitServiceUpdate(itemBeforeUpdate.rows[0].service_id, itemBeforeUpdate.rows[0].workspace_id);
 
+    // NEW: Also emit service item status update if status is present in the request
+    // This ensures layana-service edges update in real-time when service item status changes through the form
+    if (status !== undefined && status !== itemBeforeUpdate.rows[0].status) {
+      await emitServiceItemStatusUpdate(id, status, itemBeforeUpdate.rows[0].workspace_id, itemBeforeUpdate.rows[0].service_id);
+      console.log(`✅ Emitted service_item_status_update on PUT: item=${id}, status=${status}, service=${itemBeforeUpdate.rows[0].service_id}`);
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

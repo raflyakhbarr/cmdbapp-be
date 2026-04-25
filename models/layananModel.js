@@ -45,10 +45,19 @@ const updateLayananStatus = (id, status) =>
 
 // Layanan Connections
 const getAllLayananConnections = (workspaceId) => {
-  return pool.query(
-    'SELECT * FROM layanan_connections WHERE workspace_id = $1 ORDER BY created_at',
-    [workspaceId]
-  );
+  return pool.query(`
+    SELECT
+      lc.*,
+      COALESCE(l_source.status, s_source.status) as source_status,
+      COALESCE(l_target.status, s_target.status) as target_status
+    FROM layanan_connections lc
+    LEFT JOIN layanan l_source ON lc.source_type = 'layanan' AND lc.source_id = l_source.id
+    LEFT JOIN layanan l_target ON lc.target_type = 'layanan' AND lc.target_id = l_target.id
+    LEFT JOIN services s_source ON lc.source_type = 'service' AND lc.source_id = s_source.id
+    LEFT JOIN services s_target ON lc.target_type = 'service' AND lc.target_id = s_target.id
+    WHERE lc.workspace_id = $1
+    ORDER BY lc.created_at
+  `, [workspaceId]);
 };
 
 const createLayananConnection = (source_type, source_id, target_type, target_id, workspace_id, connection_type = 'connects_to', propagation_enabled = true) =>

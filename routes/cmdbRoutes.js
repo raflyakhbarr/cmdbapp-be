@@ -54,21 +54,40 @@ router.get('/shared/:token', async (req, res) => {
     await shareLinkModel.logAccess(shareLink.id, visitorIp, userAgent);
 
     // Get all data for the workspace
-    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult] = await Promise.all([
+    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult, serviceToServiceConnectionsResult, layanaResult, layanaConnectionsResult, layanaServiceConnectionsResult] = await Promise.all([
       cmdbModel.getAllItems(workspaceId),
       connectionModel.getAllConnections(workspaceId),
       groupModel.getAllGroups(workspaceId),
-      edgeHandleModel.getAllEdgeHandles()
+      edgeHandleModel.getAllEdgeHandles(),
+      require('../models/serviceToServiceConnectionModel').getServiceToServiceConnectionsByWorkspace(workspaceId),
+      require('../models/layananModel').getAllLayanan(workspaceId),
+      require('../models/layananModel').getAllLayananConnections(workspaceId),
+      require('../models/layananServiceConnectionModel').getAllLayananServiceConnections(workspaceId)
     ]);
 
-    // Get services for all items
+    // Get services for all items WITH service items
     const items = itemsResult.rows;
     const itemsWithServices = await Promise.all(
       items.map(async (item) => {
         const servicesResult = await serviceModel.getServicesByItemId(item.id);
+
+        // Get service items for each service
+        const servicesWithItems = await Promise.all(
+          servicesResult.rows.map(async (service) => {
+            const serviceItemsResult = await pool.query(
+              'SELECT * FROM service_items WHERE service_id = $1 ORDER BY created_at',
+              [service.id]
+            );
+            return {
+              ...service,
+              service_items: serviceItemsResult.rows
+            };
+          })
+        );
+
         return {
           ...item,
-          services: servicesResult.rows
+          services: servicesWithItems
         };
       })
     );
@@ -79,6 +98,10 @@ router.get('/shared/:token', async (req, res) => {
       connections: connectionsResult.rows,
       groups: groupsResult.rows,
       edge_handles: edgeHandlesResult.rows,
+      service_to_service_connections: serviceToServiceConnectionsResult.rows,
+      layanan_items: layanaResult.rows,
+      layanan_connections: layanaConnectionsResult.rows,
+      layanan_service_connections: layanaServiceConnectionsResult.rows,
       share_info: {
         token: shareLink.token,
         created_at: shareLink.created_at,

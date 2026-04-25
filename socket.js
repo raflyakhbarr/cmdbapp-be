@@ -90,14 +90,16 @@ const emitServiceItemStatusUpdate = async (serviceItemId, newStatus, workspaceId
     return;
   }
   try {
+    console.log(`🔔 Emitting service_item_status_update: item=${serviceItemId}, status=${newStatus}, service=${serviceId}, workspace=${workspaceId}`);
     io.emit('service_item_status_update', {
       serviceItemId,
       newStatus,
       workspaceId,
       serviceId
     });
+    console.log(`✅ Successfully emitted service_item_status_update event`);
   } catch (err) {
-    console.error('Failed to emit service item status update:', err);
+    console.error('❌ Failed to emit service item status update:', err);
   }
 };
 

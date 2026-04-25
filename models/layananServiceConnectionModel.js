@@ -6,11 +6,13 @@ const getAllLayananServiceConnections = (workspaceId) => {
     `SELECT lsc.*, l.name as layanan_name, l.status as layanan_status,
             s.name as service_name, s.icon_type as service_icon_type,
             si.name as service_item_name, si.status as service_item_status,
-            si.type as service_item_type
+            si.type as service_item_type,
+            ci.name as cmdb_item_name
      FROM layanan_service_connections lsc
      LEFT JOIN layanan l ON lsc.layanan_id = l.id
      LEFT JOIN services s ON lsc.service_id = s.id
      LEFT JOIN service_items si ON lsc.service_item_id = si.id
+     LEFT JOIN cmdb_items ci ON s.cmdb_item_id = ci.id
      WHERE lsc.workspace_id = $1
      ORDER BY lsc.created_at DESC`,
     [workspaceId]
