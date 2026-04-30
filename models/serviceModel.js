@@ -18,6 +18,15 @@ const getServiceToServiceConnectionModel = () => {
   return serviceToServiceConnectionModel;
 };
 
+// Lazy load cross-service connection model to avoid circular dependency
+let crossServiceConnectionModel = null;
+const getCrossServiceConnectionModel = () => {
+  if (!crossServiceConnectionModel) {
+    crossServiceConnectionModel = require('./crossServiceConnectionModel');
+  }
+  return crossServiceConnectionModel;
+};
+
 // ==================== SERVICES CRUD ====================
 
 // Get all services for a specific CMDB item
@@ -301,6 +310,55 @@ const updateServiceStatus = async (id, status) => {
     );
 
     console.log(`✅ Recursive propagation complete. Affected ${affectedServices.length} services:`, affectedServices);
+
+    // NEW: Propagate to external service items via cross-service connections
+    // When a service goes inactive, all its service items should propagate to connected external service items
+    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
+      console.log(`\n🌐 ============================================`);
+      console.log(`🌐 CROSS-SERVICE PROPAGATION FROM SERVICE LEVEL`);
+      console.log(`🌐 ============================================`);
+      console.log(`🌐 Service ID: ${id}, Status: ${status}, Workspace: ${workspaceId}`);
+
+      try {
+        // Get all service items in this service
+        const serviceItemsResult = await pool.query(
+          `SELECT id, name FROM service_items WHERE service_id = $1 AND workspace_id = $2`,
+          [id, workspaceId]
+        );
+
+        console.log(`🌐 Service has ${serviceItemsResult.rows.length} service items`);
+
+        const crossServiceModel = getCrossServiceConnectionModel();
+        let totalAffectedExternalItems = [];
+
+        // Propagate from each service item to external service items
+        for (const item of serviceItemsResult.rows) {
+          const affectedItems = await crossServiceModel.propagateStatusToConnectedServiceItems(
+            item.id,
+            status,
+            workspaceId,
+            new Set([item.id]), // Start with this item visited
+            0,
+            10
+          );
+          console.log(`🌐 From service item "${item.name}" (ID: ${item.id}): affected ${affectedItems.length} external items`);
+          totalAffectedExternalItems.push(...affectedItems);
+        }
+
+        // Remove duplicates
+        const uniqueAffectedItems = [...new Set(totalAffectedExternalItems)];
+
+        console.log(`\n🌐 CROSS-SERVICE PROPAGATION FROM SERVICE ${id} COMPLETE`);
+        console.log(`🌐 Total external service items affected: ${uniqueAffectedItems.length}`);
+        if (uniqueAffectedItems.length > 0) {
+          console.log(`🌐 Affected external item IDs:`, uniqueAffectedItems);
+        }
+        console.log(`🌐 ============================================\n`);
+      } catch (error) {
+        console.error(`❌ Error in cross-service propagation from service ${id}:`, error);
+        // Don't throw - service-level propagation should continue even if cross-service fails
+      }
+    }
   }
 
   return result;
@@ -384,16 +442,24 @@ const updateServiceItemPosition = (id, position) => {
 
 // Update service item status only
 const updateServiceItemStatus = async (id, status) => {
+  console.log(`\n🎯 ============================================`);
+  console.log(`🎯 UPDATE SERVICE ITEM STATUS STARTED`);
+  console.log(`🎯 ============================================`);
+  console.log(`🎯 Service Item ID: ${id}`);
+  console.log(`🎯 New Status: ${status}`);
+
   // First, get the service item info
-  const itemResult = await pool.query('SELECT service_id, workspace_id FROM service_items WHERE id = $1', [id]);
+  const itemResult = await pool.query('SELECT service_id, workspace_id, name FROM service_items WHERE id = $1', [id]);
   if (itemResult.rows.length === 0) {
+    console.log(`❌ Service item ${id} not found`);
     return pool.query(
       'UPDATE service_items SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
       [status, id]
     );
   }
 
-  const { service_id, workspace_id } = itemResult.rows[0];
+  const { service_id, workspace_id, name: itemName } = itemResult.rows[0];
+  console.log(`📋 Service Item: "${itemName}" (Service ID: ${service_id}, Workspace ID: ${workspace_id})`);
 
   // Update the service item status
   const result = await pool.query(
@@ -401,27 +467,136 @@ const updateServiceItemStatus = async (id, status) => {
     [status, id]
   );
 
+  console.log(`✅ Updated service item "${itemName}" to status: ${status}`);
+
   // Emit socket event for the main service item status update
   const { emitServiceItemStatusUpdate } = getSocketFunctions();
   await emitServiceItemStatusUpdate(id, status, workspace_id, service_id);
   console.log(`✅ Emitted service item status update: item=${id}, status=${status}, service=${service_id}`);
 
-  // Propagate status to other service items in the same service if status is 'inactive' or 'disabled'
-  if (status === 'inactive' || status === 'disabled') {
-    const propagateResult = await pool.query(
-      `UPDATE service_items
-       SET status = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE service_id = $2 AND workspace_id = $3 AND id != $4 AND status = 'active'
-       RETURNING *`,
-      [status, service_id, workspace_id, id]
-    );
+  // NOTE: Internal propagation within same service has been REMOVED
+  // Each service item should maintain independent status
+  // Only cross-service propagation should affect external service items
 
-    // Emit socket events for each affected service item
-    for (const item of propagateResult.rows) {
-      await emitServiceItemStatusUpdate(item.id, status, workspace_id, service_id);
-      console.log(`✅ Emitted propagated service item status update: item=${item.id}, status=${status}, service=${service_id}`);
+  // Propagate to connected service items via cross-service connections
+  // Only propagate if status is problematic (inactive, maintenance, decommissioned)
+  if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
+    console.log(`\n🌐 ============================================`);
+    console.log(`🌐 CROSS-SERVICE PROPAGATION STARTED`);
+    console.log(`🌐 ============================================`);
+    console.log(`🌐 Source: "${itemName}" (ID: ${id})`);
+    console.log(`🌐 Status: ${status}`);
+    console.log(`🌐 Workspace ID: ${workspace_id}`);
+    console.log(`🌐 --------------------------------------------`);
+
+    try {
+      const crossServiceModel = getCrossServiceConnectionModel();
+      const affectedServiceItems = await crossServiceModel.propagateStatusToConnectedServiceItems(
+        id,
+        status,
+        workspace_id,
+        new Set([id]), // Start with current service item already visited
+        0,
+        10 // Max depth
+      );
+
+      console.log(`\n🌐 CROSS-SERVICE PROPAGATION SUMMARY`);
+      console.log(`🌐 Total affected service items: ${affectedServiceItems.length}`);
+      if (affectedServiceItems.length > 0) {
+        console.log(`🌐 Affected service item IDs:`, affectedServiceItems);
+      } else {
+        console.log(`⚠️ No service items were affected by cross-service propagation`);
+      }
+      console.log(`🌐 --------------------------------------------`);
+
+      // NEW: For each affected service item in different services, update their parent service status
+      // This will trigger internal propagation within those services
+      const affectedServiceItemsGrouped = {};
+
+      console.log(`\n🔍 GROUPING AFFECTED SERVICE ITEMS BY PARENT SERVICE`);
+      for (const affectedItemId of affectedServiceItems) {
+        try {
+          // Get the affected service item details
+          const affectedItemResult = await pool.query(
+            'SELECT service_id, status, name FROM service_items WHERE id = $1',
+            [affectedItemId]
+          );
+
+          if (affectedItemResult.rows.length > 0) {
+            const affectedItem = affectedItemResult.rows[0];
+            console.log(`📋 Item "${affectedItem.name}" (ID: ${affectedItemId}) → Service ID: ${affectedItem.service_id}`);
+
+            // Group by service_id
+            if (!affectedServiceItemsGrouped[affectedItem.service_id]) {
+              affectedServiceItemsGrouped[affectedItem.service_id] = [];
+            }
+            affectedServiceItemsGrouped[affectedItem.service_id].push(affectedItemId);
+          }
+        } catch (err) {
+          console.error(`❌ Error getting service item ${affectedItemId} details:`, err);
+        }
+      }
+
+      console.log(`\n🏢 AFFECTED SERVICES: ${Object.keys(affectedServiceItemsGrouped).length}`);
+      console.log(`🏢 --------------------------------------------`);
+
+      // Update parent services for affected service items (only if they're still active)
+      for (const [affectedServiceId, affectedItemIds] of Object.entries(affectedServiceItemsGrouped)) {
+        try {
+          // Get service details for logging
+          const serviceDetailsResult = await pool.query('SELECT name FROM services WHERE id = $1', [affectedServiceId]);
+          const serviceName = serviceDetailsResult.rows[0]?.name || 'Unknown';
+
+          console.log(`\n🏢 Processing Service: "${serviceName}" (ID: ${affectedServiceId})`);
+          console.log(`🏢 Affected items in this service: ${affectedItemIds.length}`);
+
+          const serviceUpdateResult = await pool.query(
+            `UPDATE services
+             SET status = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND status = 'active'
+             RETURNING *`,
+            [status, affectedServiceId]
+          );
+
+          if (serviceUpdateResult.rows.length > 0) {
+            await emitServiceUpdate(affectedServiceId, workspace_id);
+            console.log(`✅ Updated service "${serviceName}" status to ${status}`);
+
+            // Trigger internal service propagation within the affected service
+            // This will propagate to other service items in the same service
+            try {
+              const internalPropagationResult = await pool.query(
+                `UPDATE service_items
+                 SET status = $1, updated_at = CURRENT_TIMESTAMP
+                 WHERE service_id = $2 AND workspace_id = $3 AND status = 'active'
+                 RETURNING *`,
+                [status, affectedServiceId, workspaceId]
+              );
+
+              // Emit socket events for internally propagated service items
+              for (const internalItem of internalPropagationResult.rows) {
+                await emitServiceItemStatusUpdate(internalItem.id, status, workspaceId, affectedServiceId);
+                console.log(`✅ Emitted internal service item status update: item=${internalItem.id}, status=${status}, service=${affectedServiceId}`);
+              }
+
+              console.log(`✅ Internal propagation in service ${affectedServiceId}: affected ${internalPropagationResult.rows.length} service items`);
+            } catch (error) {
+              console.error(`❌ Error in internal service propagation for service ${affectedServiceId}:`, error);
+            }
+          }
+        } catch (err) {
+          console.error(`❌ Error updating service ${affectedServiceId} due to cross-service propagation:`, err);
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Error in cross-service propagation from service item ${id}:`, error);
+      // Don't throw error, just log it - propagation failure shouldn't break the main update
     }
   }
+
+  console.log(`\n🎯 ============================================`);
+  console.log(`🎯 UPDATE SERVICE ITEM STATUS COMPLETED`);
+  console.log(`🎯 ============================================\n`);
 
   return result;
 };

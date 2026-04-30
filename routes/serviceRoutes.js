@@ -563,6 +563,21 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
     if (status !== undefined && status !== itemBeforeUpdate.rows[0].status) {
       await emitServiceItemStatusUpdate(id, status, itemBeforeUpdate.rows[0].workspace_id, itemBeforeUpdate.rows[0].service_id);
       console.log(`✅ Emitted service_item_status_update on PUT: item=${id}, status=${status}, service=${itemBeforeUpdate.rows[0].service_id}`);
+
+      // Trigger propagation if status changed to problematic state
+      if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
+        console.log(`🔄 Triggering cross-service propagation from PUT endpoint for item ${id}...`);
+        const crossServiceConnectionModel = require('../models/crossServiceConnectionModel');
+        const affectedServiceItems = await crossServiceConnectionModel.propagateStatusToConnectedServiceItems(
+          id,
+          status,
+          itemBeforeUpdate.rows[0].workspace_id,
+          new Set([id]),
+          0,
+          10
+        );
+        console.log(`✅ Cross-service propagation from PUT: affected ${affectedServiceItems.length} items`);
+      }
     }
 
     res.json(result.rows[0]);
@@ -656,6 +671,131 @@ router.delete('/items/:id', authenticateToken, async (req, res) => {
 
     res.status(204).send();
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== CROSS-SERVICE PROPAGATION FOR SERVICE ITEMS ====================
+
+// Manually trigger cross-service propagation from a service item
+router.post('/items/:serviceItemId/propagate-status', authenticateToken, async (req, res) => {
+  const { serviceItemId } = req.params;
+  const { status, max_depth = 10 } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ error: 'status is required' });
+  }
+
+  const validStatuses = ['active', 'inactive', 'maintenance', 'disabled', 'decommissioned'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value. Must be active, inactive, maintenance, disabled, or decommissioned' });
+  }
+
+  try {
+    // Get service item first to obtain workspace_id
+    const itemResult = await serviceModel.getServiceItemById(serviceItemId);
+    if (itemResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service item not found' });
+    }
+    const item = itemResult.rows[0];
+
+    // Get cross-service connection model
+    const crossServiceConnectionModel = require('../models/crossServiceConnectionModel');
+
+    // Perform cross-service propagation
+    const affectedServiceItems = await crossServiceConnectionModel.propagateStatusToConnectedServiceItems(
+      parseInt(serviceItemId),
+      status,
+      item.workspace_id,
+      new Set([parseInt(serviceItemId)]), // Start with current service item already visited
+      0,
+      parseInt(max_depth)
+    );
+
+    // Emit socket events for all affected service items and their services
+    const { emitServiceUpdate, emitServiceItemStatusUpdate } = require('../socket');
+    for (const affectedItemId of affectedServiceItems) {
+      // Get affected service item details to emit proper events
+      const affectedItemResult = await serviceModel.getServiceItemById(affectedItemId);
+      if (affectedItemResult.rows.length > 0) {
+        const affectedItem = affectedItemResult.rows[0];
+        await emitServiceItemStatusUpdate(affectedItemId, status, item.workspace_id, affectedItem.service_id);
+        await emitServiceUpdate(affectedItem.service_id, item.workspace_id);
+        console.log(`✅ Emitted cross-service propagated updates: item=${affectedItemId}, service=${affectedItem.service_id}, status=${status}`);
+      }
+    }
+
+    res.json({
+      message: 'Cross-service status propagation completed',
+      sourceServiceItemId: serviceItemId,
+      status: status,
+      affectedServiceItems: affectedServiceItems,
+      count: affectedServiceItems.length
+    });
+  } catch (err) {
+    console.error('Error propagating cross-service status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get cross-service propagation preview for a service item
+router.get('/items/:serviceItemId/propagation-preview', authenticateToken, async (req, res) => {
+  const { serviceItemId } = req.params;
+  const { status } = req.query;
+
+  if (!status) {
+    return res.status(400).json({ error: 'status parameter is required' });
+  }
+
+  try {
+    // Get service item first
+    const itemResult = await serviceModel.getServiceItemById(serviceItemId);
+    if (itemResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Service item not found' });
+    }
+    const item = itemResult.rows[0];
+
+    // Get cross-service connection model
+    const crossServiceConnectionModel = require('../models/crossServiceConnectionModel');
+
+    // Get outgoing connections to see what would be affected
+    const connectionsResult = await crossServiceConnectionModel.getCrossServiceConnectionsByServiceItemId(
+      serviceItemId
+    );
+
+    // Filter to get only outgoing connections (where this service item is the source)
+    const outgoingConnections = connectionsResult.rows.filter(conn => conn.source_service_item_id === parseInt(serviceItemId));
+
+    const preview = await Promise.all(outgoingConnections.map(async (conn) => {
+      const wouldAffect = conn.target_status === 'active' && conn.propagation_enabled;
+      const connTypeDef = await crossServiceConnectionModel.getConnectionTypeDefinition(conn.connection_type);
+      const propagation = connTypeDef?.propagation || 'both';
+
+      return {
+        connection: `${conn.source_name} → ${conn.target_name}`,
+        source_service_item: conn.source_name,
+        target_service_item: conn.target_name,
+        source_service: conn.source_service_name,
+        target_service: conn.target_service_name,
+        connection_type: conn.connection_type,
+        propagation: propagation,
+        propagation_enabled: conn.propagation_enabled,
+        would_affect: wouldAffect,
+        current_status: conn.target_status,
+        new_status: wouldAffect ? status : conn.target_status
+      };
+    }));
+
+    res.json({
+      source_service_item_id: serviceItemId,
+      source_service_item_name: item.name,
+      status: status,
+      affected_connections: preview,
+      total_connections: preview.length,
+      would_affect_count: preview.filter(p => p.would_affect).length
+    });
+  } catch (err) {
+    console.error('Error getting cross-service propagation preview:', err);
     res.status(500).json({ error: err.message });
   }
 });

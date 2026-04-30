@@ -60,7 +60,7 @@ router.get('/available/:workspaceId/:currentServiceItemId', authenticateToken, a
 
 // Create a new cross-service connection
 router.post('/', authenticateToken, async (req, res) => {
-  const { source_service_item_id, target_service_item_id, workspace_id, connection_type, direction } = req.body;
+  const { source_service_item_id, target_service_item_id, workspace_id, connection_type, direction, propagation_enabled } = req.body;
 
   // Validation
   if (!source_service_item_id || !target_service_item_id || !workspace_id) {
@@ -79,7 +79,8 @@ router.post('/', authenticateToken, async (req, res) => {
       target_service_item_id,
       workspace_id,
       connection_type || 'connects_to',
-      direction || 'forward'
+      direction || 'forward',
+      propagation_enabled !== undefined ? propagation_enabled : true
     );
 
     // Emit socket update for both service items
@@ -102,7 +103,7 @@ router.post('/', authenticateToken, async (req, res) => {
 // Update an existing cross-service connection
 router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { connection_type, direction } = req.body;
+  const { connection_type, direction, propagation_enabled } = req.body;
 
   if (!connection_type || !direction) {
     return res.status(400).json({ error: 'connection_type and direction are required' });
@@ -112,7 +113,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const result = await crossServiceConnectionModel.updateCrossServiceConnectionById(
       id,
       connection_type,
-      direction
+      direction,
+      propagation_enabled !== undefined ? propagation_enabled : true
     );
 
     if (result.rows.length === 0) {
@@ -133,7 +135,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // Update connection by source and target IDs
 router.put('/between/:sourceId/:targetId', authenticateToken, async (req, res) => {
   const { sourceId, targetId } = req.params;
-  const { workspace_id, connection_type, direction } = req.body;
+  const { workspace_id, connection_type, direction, propagation_enabled } = req.body;
 
   if (!workspace_id || !connection_type || !direction) {
     return res.status(400).json({ error: 'workspace_id, connection_type, and direction are required' });
@@ -145,7 +147,8 @@ router.put('/between/:sourceId/:targetId', authenticateToken, async (req, res) =
       targetId,
       workspace_id,
       connection_type,
-      direction
+      direction,
+      propagation_enabled !== undefined ? propagation_enabled : true
     );
 
     if (result.rows.length === 0) {
@@ -298,6 +301,88 @@ router.delete('/edge-handles/:edgeId', authenticateToken, async (req, res) => {
     await crossServiceEdgeHandleModel.deleteCrossServiceEdgeHandle(edgeId);
     res.json({ message: 'Edge handle deleted successfully' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== CROSS-SERVICE PROPAGATION ROUTES ====================
+
+// Manual trigger for propagating status from a service item
+router.post('/propagate/:serviceItemId', authenticateToken, async (req, res) => {
+  const { serviceItemId } = req.params;
+  const { status, max_depth = 10 } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ error: 'status is required' });
+  }
+
+  try {
+    const affectedItems = await crossServiceConnectionModel.propagateStatusToConnectedServiceItems(
+      parseInt(serviceItemId),
+      status,
+      req.body.workspace_id,
+      new Set(), // Start fresh
+      0,
+      parseInt(max_depth)
+    );
+
+    res.json({
+      message: 'Status propagation completed',
+      affectedServiceItems: affectedItems,
+      count: affectedItems.length
+    });
+  } catch (err) {
+    console.error('Error propagating status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get propagation preview (what would happen if we propagate)
+router.get('/propagate/:serviceItemId/preview', authenticateToken, async (req, res) => {
+  const { serviceItemId } = req.params;
+  const { status } = req.query;
+
+  if (!status) {
+    return res.status(400).json({ error: 'status parameter is required' });
+  }
+
+  try {
+    // Get outgoing connections to see what would be affected
+    const connections = await crossServiceConnectionModel.getCrossServiceConnectionsByServiceItemId(
+      serviceItemId
+    );
+
+    // Get connection type definitions for all connections
+    const connectionTypePromises = connections.rows.map(conn =>
+      crossServiceConnectionModel.getConnectionTypeDefinition(conn.connection_type)
+    );
+
+    const connectionTypeDefs = await Promise.all(connectionTypePromises);
+
+    const preview = connections.rows.map((conn, index) => {
+      const wouldAffect = conn.source_status === 'active' && conn.propagation_enabled;
+      const connTypeDef = connectionTypeDefs[index];
+      const propagation = connTypeDef?.propagation || 'both';
+
+      return {
+        connection: `${conn.source_name} → ${conn.target_name}`,
+        connection_type: conn.connection_type,
+        propagation: propagation,
+        would_affect: wouldAffect,
+        current_status: conn.target_status,
+        new_status: wouldAffect ? status : conn.target_status,
+        propagation_enabled: conn.propagation_enabled
+      };
+    });
+
+    res.json({
+      source_service_item_id: serviceItemId,
+      status: status,
+      affected_connections: preview,
+      total_connections: preview.length
+    });
+  } catch (err) {
+    console.error('Error getting propagation preview:', err);
     res.status(500).json({ error: err.message });
   }
 });
