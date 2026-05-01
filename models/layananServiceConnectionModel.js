@@ -54,7 +54,7 @@ const getLayananServiceConnectionsByServiceItemId = (serviceItemId) => {
 };
 
 // Create layanan service connection
-const createLayananServiceConnection = (
+const createLayananServiceConnection = async (
   layananId,
   serviceId,
   serviceItemId,
@@ -62,14 +62,50 @@ const createLayananServiceConnection = (
   connectionType = 'depends_on',
   propagationEnabled = true
 ) => {
-  return pool.query(
-    `INSERT INTO layanan_service_connections (layanan_id, service_id, service_item_id, workspace_id, connection_type, propagation_enabled)
-     VALUES($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (layanan_id, service_item_id)
-     DO UPDATE SET connection_type = EXCLUDED.connection_type, propagation_enabled = EXCLUDED.propagation_enabled, updated_at = CURRENT_TIMESTAMP
-     RETURNING *`,
-    [layananId, serviceId, serviceItemId, workspaceId, connectionType, propagationEnabled]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Check if connection already exists
+    const existingCheck = await client.query(
+      `SELECT id FROM layanan_service_connections
+       WHERE layanan_id = $1 AND service_item_id = $2`,
+      [layananId, serviceItemId]
+    );
+
+    let result;
+    if (existingCheck.rows.length > 0) {
+      // Update existing connection
+      result = await client.query(
+        `UPDATE layanan_service_connections
+         SET connection_type = $1, propagation_enabled = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3
+         RETURNING *`,
+        [connectionType, propagationEnabled, existingCheck.rows[0].id]
+      );
+    } else {
+      // Get next ID from sequence
+      const idResult = await client.query(`SELECT nextval('layanan_service_connections_id_seq') as new_id`);
+      const newId = idResult.rows[0].new_id;
+
+      // Insert new connection with explicit ID from sequence
+      result = await client.query(
+        `INSERT INTO layanan_service_connections (id, layanan_id, service_id, service_item_id, workspace_id, connection_type, propagation_enabled)
+         VALUES($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [newId, layananId, serviceId, serviceItemId, workspaceId, connectionType, propagationEnabled]
+      );
+    }
+
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    console.error('[ERROR] createLayananServiceConnection failed:', err);
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 // Update layanan service connection

@@ -60,6 +60,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'layanan_id, service_id, service_item_id, and workspace_id are required' });
     }
 
+    console.log('[DEBUG] Route received:', { layanan_id, service_id, service_item_id, workspace_id, connection_type, propagation_enabled });
+
     const result = await createLayananServiceConnection(
       layanan_id,
       service_id,
@@ -74,8 +76,8 @@ router.post('/', async (req, res) => {
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('Error creating layanan service connection:', err);
-    res.status(500).json({ error: 'Failed to create layanan service connection' });
+    console.error('[ERROR] Route failed creating layanan service connection:', err.message, err.stack);
+    res.status(500).json({ error: 'Failed to create layanan service connection: ' + err.message });
   }
 });
 
