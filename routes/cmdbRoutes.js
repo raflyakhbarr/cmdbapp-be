@@ -36,15 +36,35 @@ router.get('/shared/:token', async (req, res) => {
 
     // Check if password is required
     if (hasPassword) {
+      // Check if password was provided via header
+      const headerPassword = req.headers['x-share-password'];
+
       // Check if password was already verified in session
       const sessionPasswordVerified = req.session?.verified_share_tokens?.[token];
 
-      if (!sessionPasswordVerified) {
+      if (!headerPassword && !sessionPasswordVerified) {
         return res.status(403).json({
           error: 'Password required',
           requires_password: true,
           has_password: true
         });
+      }
+
+      // If password provided via header, verify it
+      if (headerPassword && !sessionPasswordVerified) {
+        const isValid = await shareLinkModel.verifyPassword(token, headerPassword);
+        if (!isValid) {
+          return res.status(401).json({
+            error: 'Invalid password',
+            requires_password: true,
+            has_password: true
+          });
+        }
+        // Mark as verified in session
+        if (!req.session.verified_share_tokens) {
+          req.session.verified_share_tokens = {};
+        }
+        req.session.verified_share_tokens[token] = true;
       }
     }
 
@@ -54,16 +74,20 @@ router.get('/shared/:token', async (req, res) => {
     await shareLinkModel.logAccess(shareLink.id, visitorIp, userAgent);
 
     // Get all data for the workspace
-    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult, serviceToServiceConnectionsResult] = await Promise.all([
+    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult, serviceToServiceConnectionsResult, crossServiceConnectionsResult] = await Promise.all([
       cmdbModel.getAllItems(workspaceId),
       connectionModel.getAllConnections(workspaceId),
       groupModel.getAllGroups(workspaceId),
       edgeHandleModel.getAllEdgeHandles(),
-      require('../models/serviceToServiceConnectionModel').getServiceToServiceConnectionsByWorkspace(workspaceId)
+      require('../models/serviceToServiceConnectionModel').getServiceToServiceConnectionsByWorkspace(workspaceId),
+      require('../models/crossServiceConnectionModel').getCrossServiceConnectionsByWorkspace(workspaceId)
     ]);
 
     // Get services for all items WITH service items
     const items = itemsResult.rows;
+
+    // Collect all services
+    const allServices = [];
     const itemsWithServices = await Promise.all(
       items.map(async (item) => {
         const servicesResult = await serviceModel.getServicesByItemId(item.id);
@@ -75,10 +99,16 @@ router.get('/shared/:token', async (req, res) => {
               'SELECT * FROM service_items WHERE service_id = $1 ORDER BY created_at',
               [service.id]
             );
-            return {
+
+            const serviceWithItems = {
               ...service,
               service_items: serviceItemsResult.rows
             };
+
+            // Add to all services array
+            allServices.push(serviceWithItems);
+
+            return serviceWithItems;
           })
         );
 
@@ -92,10 +122,12 @@ router.get('/shared/:token', async (req, res) => {
     res.json({
       workspace_id: workspaceId,
       items: itemsWithServices,
+      services: allServices, // Add services as separate array
       connections: connectionsResult.rows,
       groups: groupsResult.rows,
       edge_handles: edgeHandlesResult.rows,
-      service_to_service_connections: serviceToServiceConnectionsResult.rows,
+      serviceToServiceConnections: serviceToServiceConnectionsResult.rows, // Changed to camelCase
+      crossServiceConnections: crossServiceConnectionsResult.rows, // Add cross-service connections
       share_info: {
         token: shareLink.token,
         created_at: shareLink.created_at,
