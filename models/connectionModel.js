@@ -31,11 +31,49 @@ const getDependencies = (itemId) => pool.query(
 );
 
 // Create a new connection - TAMBAHKAN workspace_id
-const createConnection = (sourceId, targetId, workspaceId, connectionType = 'depends_on', direction = 'forward') =>
-  pool.query(
+const createConnection = (sourceId, targetId, workspaceId, connectionType = 'depends_on', direction = 'forward', targetServiceId = null, targetServiceItemId = null, sourceServiceId = null, sourceServiceItemId = null) => {
+  console.log('\n💾 ========================================');
+  console.log('💾 connectionModel.createConnection');
+  console.log('💾 ========================================');
+  console.log('💾 sourceId:', sourceId);
+  console.log('💾 targetId:', targetId);
+  console.log('💾 workspaceId:', workspaceId);
+  console.log('💾 connectionType:', connectionType);
+  console.log('💾 direction:', direction);
+  console.log('💾 targetServiceId:', targetServiceId);
+  console.log('💾 targetServiceItemId:', targetServiceItemId);
+  console.log('💾 sourceServiceId:', sourceServiceId);
+  console.log('💾 sourceServiceItemId:', sourceServiceItemId);
+  console.log('💾 ========================================\n');
+
+  // Determine which combination of fields to use based on what's provided
+  if (sourceServiceItemId !== null) {
+    console.log('💾 Using: source_service_item_id path');
+    // Service item as source: source_service_item_id set, source_id and source_service_id must be null
+    return pool.query(
+      'INSERT INTO connections(source_service_item_id, source_id, source_service_id, target_id, workspace_id, connection_type, direction, target_service_id, target_service_item_id) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
+      [sourceServiceItemId, null, null, targetId, workspaceId, connectionType, direction, targetServiceId, targetServiceItemId]
+    );
+  } else if (sourceServiceId !== null) {
+    console.log('💾 Using: source_service_id path');
+    // Service as source: source_service_id set, source_id null, target_id may be item or null
+    return pool.query(
+      'INSERT INTO connections(source_service_id, source_id, target_id, workspace_id, connection_type, direction, target_service_id, target_service_item_id) VALUES($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+      [sourceServiceId, sourceId, targetId, workspaceId, connectionType, direction, targetServiceId, targetServiceItemId]
+    );
+  } else if (targetServiceId !== null || targetServiceItemId !== null) {
+    console.log('💾 Using: target_service path');
+    return pool.query(
+      'INSERT INTO connections(source_id, target_id, workspace_id, connection_type, direction, target_service_id, target_service_item_id) VALUES($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [sourceId, targetId, workspaceId, connectionType, direction, targetServiceId, targetServiceItemId]
+    );
+  }
+  console.log('💾 Using: default item-to-item path');
+  return pool.query(
     'INSERT INTO connections(source_id, target_id, workspace_id, connection_type, direction) VALUES($1, $2, $3, $4, $5) RETURNING *',
     [sourceId, targetId, workspaceId, connectionType, direction]
   );
+};
 
 // Update existing connection
 const updateConnection = (sourceId, targetId, workspaceId, connectionType, direction) =>

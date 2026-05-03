@@ -54,15 +54,12 @@ router.get('/shared/:token', async (req, res) => {
     await shareLinkModel.logAccess(shareLink.id, visitorIp, userAgent);
 
     // Get all data for the workspace
-    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult, serviceToServiceConnectionsResult, layanaResult, layanaConnectionsResult, layanaServiceConnectionsResult] = await Promise.all([
+    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult, serviceToServiceConnectionsResult] = await Promise.all([
       cmdbModel.getAllItems(workspaceId),
       connectionModel.getAllConnections(workspaceId),
       groupModel.getAllGroups(workspaceId),
       edgeHandleModel.getAllEdgeHandles(),
-      require('../models/serviceToServiceConnectionModel').getServiceToServiceConnectionsByWorkspace(workspaceId),
-      require('../models/layananModel').getAllLayanan(workspaceId),
-      require('../models/layananModel').getAllLayananConnections(workspaceId),
-      require('../models/layananServiceConnectionModel').getAllLayananServiceConnections(workspaceId)
+      require('../models/serviceToServiceConnectionModel').getServiceToServiceConnectionsByWorkspace(workspaceId)
     ]);
 
     // Get services for all items WITH service items
@@ -99,9 +96,6 @@ router.get('/shared/:token', async (req, res) => {
       groups: groupsResult.rows,
       edge_handles: edgeHandlesResult.rows,
       service_to_service_connections: serviceToServiceConnectionsResult.rows,
-      layanan_items: layanaResult.rows,
-      layanan_connections: layanaConnectionsResult.rows,
-      layanan_service_connections: layanaServiceConnectionsResult.rows,
       share_info: {
         token: shareLink.token,
         created_at: shareLink.created_at,
@@ -245,10 +239,29 @@ router.post('/', authenticateToken, async (req, res) => {
 
 // Create connection between items
 router.post('/connections', authenticateToken, async (req, res) => {
-  const { source_id, target_id, workspace_id, connection_type, direction } = req.body;
+  const { source_id, target_id, workspace_id, connection_type, direction, target_service_id, target_service_item_id, source_service_id, source_service_item_id } = req.body;
 
-  if (!source_id || !target_id) {
-    return res.status(400).json({ error: 'source_id and target_id are required' });
+  // Log connection creation
+  console.log('\n🔗 ========================================');
+  console.log('🔗 BACKEND: Creating Connection');
+  console.log('🔗 ========================================');
+  console.log('🔗 source_id:', source_id);
+  console.log('🔗 source_service_id:', source_service_id);
+  console.log('🔗 source_service_item_id:', source_service_item_id);
+  console.log('🔗 target_id:', target_id);
+  console.log('🔗 target_service_id:', target_service_id);
+  console.log('🔗 target_service_item_id:', target_service_item_id);
+  console.log('🔗 workspace_id:', workspace_id);
+  console.log('🔗 connection_type:', connection_type);
+  console.log('🔗 direction:', direction);
+  console.log('🔗 ========================================\n');
+
+  // Allow various source/target combinations
+  const hasSource = source_id || source_service_id || source_service_item_id;
+  const hasTarget = target_id || target_service_id || target_service_item_id;
+
+  if (!hasSource || !hasTarget) {
+    return res.status(400).json({ error: 'source (source_id/source_service_id/source_service_item_id) and target (target_id/target_service_id/target_service_item_id) are required' });
   }
 
   if (!workspace_id) {
@@ -257,15 +270,25 @@ router.post('/connections', authenticateToken, async (req, res) => {
 
   try {
     const result = await connectionModel.createConnection(
-      source_id,
-      target_id,
+      source_id || null,
+      target_id || null,
       workspace_id,
       connection_type || 'depends_on',
-      direction || 'forward'
+      direction || 'forward',
+      target_service_id || null,
+      target_service_item_id || null,
+      source_service_id || null,
+      source_service_item_id || null
     );
+
+    console.log('\n✅ Connection created successfully!');
+    console.log('✅ Connection ID:', result.rows[0].id);
+    console.log('✅ ========================================\n');
+
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    console.error('❌ Error creating connection:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -396,21 +419,16 @@ router.patch('/:id/group', authenticateToken, async (req, res) => {
 router.patch('/:id/reorder', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { new_order } = req.body;
-  
-  console.log(`Reorder request received - ID: ${id}, New Order: ${new_order}`);
-  
+
   if (typeof new_order !== 'number') {
-    console.error('Invalid new_order type:', typeof new_order);
     return res.status(400).json({ error: 'new_order must be a number' });
   }
-  
+
   try {
     const result = await cmdbModel.reorderItemInGroup(id, new_order);
     await emitCmdbUpdate(cmdbModel);
-    console.log(`Reorder successful for item ${id}`);
     res.json(result.rows[0]);
   } catch (err) {
-    console.error(`Reorder failed for item ${id}:`, err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -472,6 +490,36 @@ router.delete('/connections/:sourceId/:targetId', authenticateToken, async (req,
   }
 });
 
+// Delete item-to-service connection
+router.delete('/connections/item-to-service/:sourceId/:targetServiceId', authenticateToken, async (req, res) => {
+  const { sourceId, targetServiceId } = req.params;
+  try {
+    await pool.query(
+      'DELETE FROM connections WHERE source_id = $1 AND target_service_id = $2',
+      [sourceId, targetServiceId]
+    );
+    await emitCmdbUpdate(cmdbModel);
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete item-to-service-item connection
+router.delete('/connections/item-to-service-item/:sourceId/:targetServiceItemId', authenticateToken, async (req, res) => {
+  const { sourceId, targetServiceItemId } = req.params;
+  try {
+    const result = await pool.query(
+      'DELETE FROM connections WHERE source_id = $1 AND target_service_item_id = $2 RETURNING *',
+      [sourceId, targetServiceItemId]
+    );
+    await emitCmdbUpdate(cmdbModel);
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/connections/to-group/:sourceId/:targetGroupId', authenticateToken, async (req, res) => {
   const { sourceId, targetGroupId } = req.params;
   try {
@@ -482,6 +530,38 @@ router.delete('/connections/to-group/:sourceId/:targetGroupId', authenticateToke
     await emitCmdbUpdate(cmdbModel);
     res.status(204).send();
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete service-to-item connection
+router.delete('/connections/from-service/:sourceServiceId/:targetItemId', authenticateToken, async (req, res) => {
+  const { sourceServiceId, targetItemId } = req.params;
+  try {
+    const result = await pool.query(
+      'DELETE FROM connections WHERE source_service_id = $1 AND target_id = $2 RETURNING *',
+      [sourceServiceId, targetItemId]
+    );
+    await emitCmdbUpdate(cmdbModel);
+    res.status(204).send();
+  } catch (err) {
+    console.error('Delete service-to-item error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete service-item-to-item connection
+router.delete('/connections/service-item-to-item/:sourceServiceItemId/:targetItemId', authenticateToken, async (req, res) => {
+  const { sourceServiceItemId, targetItemId } = req.params;
+  try {
+    const result = await pool.query(
+      'DELETE FROM connections WHERE source_service_item_id = $1 AND target_id = $2 RETURNING *',
+      [sourceServiceItemId, targetItemId]
+    );
+    await emitCmdbUpdate(cmdbModel);
+    res.status(204).send();
+  } catch (err) {
+    console.error('Delete service-item-to-item error:', err);
     res.status(500).json({ error: err.message });
   }
 });

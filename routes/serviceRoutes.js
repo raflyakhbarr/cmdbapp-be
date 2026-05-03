@@ -541,6 +541,13 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { name, type, description, status, ip, domain, port, category, location, group_id, order_in_group } = req.body;
 
+  console.log('\n📝 ========================================');
+  console.log('📝 PUT /service-items/items/:id');
+  console.log('📝 ========================================');
+  console.log('📝 Service Item ID:', id);
+  console.log('📝 New Status:', status);
+  console.log('📝 ========================================\n');
+
   if (!name) {
     return res.status(400).json({ error: 'name is required' });
   }
@@ -552,36 +559,37 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Service item not found' });
     }
 
+    const oldStatus = itemBeforeUpdate.rows[0].status;
+    console.log(`📝 Old Status: ${oldStatus}`);
+    console.log(`📝 New Status: ${status}`);
+    console.log(`📝 Status Changed: ${status !== undefined && status !== oldStatus}`);
+
     const result = await serviceModel.updateServiceItem(id, name, type, description, status, ip, domain, port, category, location, group_id, order_in_group);
 
     // Emit service update dengan serviceId dan workspaceId dari item SEBELUM update
     // untuk memastikan konsistensi
     await emitServiceUpdate(itemBeforeUpdate.rows[0].service_id, itemBeforeUpdate.rows[0].workspace_id);
 
-    // NEW: Also emit service item status update if status is present in the request
-    // This ensures layana-service edges update in real-time when service item status changes through the form
-    if (status !== undefined && status !== itemBeforeUpdate.rows[0].status) {
+    // If status changed, use updateServiceItemStatus to trigger CMDB propagation
+    if (status !== undefined && status !== oldStatus) {
+      console.log(`\n🔄 ========================================`);
+      console.log(`🔄 STATUS CHANGED - Triggering Propagation`);
+      console.log(`🔄 ========================================`);
+      console.log(`🔄 Service Item ID: ${id}`);
+      console.log(`🔄 Service Item Name: ${itemBeforeUpdate.rows[0].name}`);
+      console.log(`🔄 Old Status: ${oldStatus} → New Status: ${status}`);
+      console.log(`🔄 Service ID: ${itemBeforeUpdate.rows[0].service_id}`);
+      console.log(`🔄 Workspace ID: ${itemBeforeUpdate.rows[0].workspace_id}`);
+      console.log(`🔄 ========================================\n`);
+
+      await serviceModel.updateServiceItemStatus(id, status);
       await emitServiceItemStatusUpdate(id, status, itemBeforeUpdate.rows[0].workspace_id, itemBeforeUpdate.rows[0].service_id);
       console.log(`✅ Emitted service_item_status_update on PUT: item=${id}, status=${status}, service=${itemBeforeUpdate.rows[0].service_id}`);
-
-      // Trigger propagation if status changed to problematic state
-      if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
-        console.log(`🔄 Triggering cross-service propagation from PUT endpoint for item ${id}...`);
-        const crossServiceConnectionModel = require('../models/crossServiceConnectionModel');
-        const affectedServiceItems = await crossServiceConnectionModel.propagateStatusToConnectedServiceItems(
-          id,
-          status,
-          itemBeforeUpdate.rows[0].workspace_id,
-          new Set([id]),
-          0,
-          10
-        );
-        console.log(`✅ Cross-service propagation from PUT: affected ${affectedServiceItems.length} items`);
-      }
     }
 
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('❌ Error in PUT /items/:id:', err);
     res.status(500).json({ error: err.message });
   }
 });

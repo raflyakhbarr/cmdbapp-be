@@ -53,6 +53,9 @@ const updateItemPosition = (id, position) =>
 
 // Update status and propagate to services and their items
 const updateItemStatus = async (id, status) => {
+  console.log(`\n[CMDB] updateItemStatus called: id=${id}, status=${status}`);
+  console.log(`[CMDB] Stack trace:`, new Error().stack.split('\n').slice(1, 4).join('\n'));
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -69,9 +72,21 @@ const updateItemStatus = async (id, status) => {
 
     await client.query('COMMIT');
 
-    // Propagate status to services if status is 'inactive', 'maintenance', or 'disabled' (outside transaction)
-    if (status === 'inactive' || status === 'maintenance' || status === 'disabled') {
-      // Get all services associated with this CMDB item
+    // Emit socket update BEFORE propagation to ensure UI updates first
+    const { emitCmdbUpdate } = require('../socket');
+    await emitCmdbUpdate();
+
+    // Propagate status to services and service items if status is 'inactive', 'maintenance', 'decommissioned', or 'disabled' (outside transaction)
+    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
+      console.log(`\n🔄 ========================================`);
+      console.log(`🔄 CMDB ITEM STATUS PROPAGATION STARTED`);
+      console.log(`🔄 ========================================`);
+      console.log(`🔄 CMDB Item ID: ${id}`);
+      console.log(`🔄 New Status: ${status}`);
+      console.log(`🔄 Workspace ID: ${workspaceId}`);
+      console.log(`🔄 --------------------------------------------`);
+
+      // 1. Propagate to services associated with this CMDB item
       const servicesResult = await pool.query(
         'SELECT id FROM services WHERE cmdb_item_id = $1',
         [id]
@@ -84,6 +99,204 @@ const updateItemStatus = async (id, status) => {
       for (const service of servicesResult.rows) {
         // Use updateServiceStatus to trigger recursive propagation to connected services
         await serviceModel.updateServiceStatus(service.id, status);
+      }
+
+      // 2. NEW: Forward propagation to service items where this CMDB item is SOURCE
+      // Find connections where this CMDB item is the SOURCE and target is a SERVICE ITEM
+      try {
+        console.log(`\n🔄 Searching for service items that depend on this CMDB item...`);
+
+        const connectionsResult = await pool.query(
+          `SELECT c.*, ct.propagation
+           FROM connections c
+           LEFT JOIN connection_type_definitions ct ON ct.type_slug = c.connection_type
+           WHERE c.source_id = $1
+             AND c.workspace_id = $2
+             AND c.target_service_item_id IS NOT NULL`,
+          [id, workspaceId]
+        );
+
+        console.log(`🔄 Found ${connectionsResult.rows.length} connections where this CMDB item is source (to service items)`);
+
+        for (const conn of connectionsResult.rows) {
+          const targetServiceItemId = conn.target_service_item_id;
+          const propagation = conn.propagation || 'source_to_target'; // Default: source affects target
+
+          console.log(`\n🔄 Processing connection to Service Item ${targetServiceItemId}`);
+          console.log(`🔄 Connection type: ${conn.connection_type}`);
+          console.log(`🔄 Propagation: ${propagation}`);
+
+          // Check if we should propagate based on propagation direction
+          // For CMDB-item-as-source, service-item-as-target:
+          // propagation = 'source_to_target' means: if source (CMDB item) is down, target (service item) is affected
+          // propagation = 'target_to_source' means: if target (service item) is down, source (CMDB item) is affected (not relevant here)
+          // propagation = 'both' means: bidirectional
+
+          if (propagation === 'source_to_target' || propagation === 'both') {
+            // Get target service item details
+            const serviceItemResult = await pool.query(
+              'SELECT id, name, status FROM service_items WHERE id = $1',
+              [targetServiceItemId]
+            );
+
+            if (serviceItemResult.rows.length > 0) {
+              const serviceItem = serviceItemResult.rows[0];
+              console.log(`🔄 Target Service Item: "${serviceItem.name}" (ID: ${targetServiceItemId}, Current Status: ${serviceItem.status})`);
+
+              // Only update if service item is currently active (don't override worse status)
+              if (serviceItem.status === 'active') {
+                console.log(`🔄 Updating Service Item "${serviceItem.name}" status to ${status} (source_to_target propagation)`);
+                await serviceModel.updateServiceItemStatus(targetServiceItemId, status);
+                console.log(`✅ Updated Service Item "${serviceItem.name}" status to ${status}`);
+              } else {
+                console.log(`⏸️ Skipped Service Item "${serviceItem.name}" - already has status ${serviceItem.status} (worse or equal)`);
+              }
+            }
+          } else if (propagation === 'target_to_source') {
+            console.log(`⏸️ Skipped - propagation is target_to_source (target affects source, not relevant for forward propagation)`);
+          }
+        }
+
+        console.log(`\n🔄 --------------------------------------------`);
+        console.log(`🔄 CMDB ITEM TO SERVICE ITEM PROPAGATION COMPLETED`);
+        console.log(`🔄 ========================================`);
+      } catch (error) {
+        console.error(`❌ Error in CMDB item to service item propagation from CMDB item ${id}:`, error);
+        // Don't throw error - forward propagation failure shouldn't break the main update
+      }
+
+      // 3. NEW: Forward propagation to services where this CMDB item is SOURCE
+      // Find connections where this CMDB item is the SOURCE and target is a SERVICE
+      try {
+        console.log(`\n🔄 ========================================`);
+        console.log(`🔄 CMDB ITEM TO SERVICE PROPAGATION STARTED`);
+        console.log(`🔄 ========================================`);
+
+        const connectionsResult = await pool.query(
+          `SELECT c.*, ct.propagation
+           FROM connections c
+           LEFT JOIN connection_type_definitions ct ON ct.type_slug = c.connection_type
+           WHERE c.source_id = $1
+             AND c.workspace_id = $2
+             AND c.target_service_id IS NOT NULL`,
+          [id, workspaceId]
+        );
+
+        console.log(`🔄 Found ${connectionsResult.rows.length} connections where this CMDB item is source (to services)`);
+
+        const serviceModelForServices = require('./serviceModel');
+
+        for (const conn of connectionsResult.rows) {
+          const targetServiceId = conn.target_service_id;
+          const propagation = conn.propagation || 'source_to_target'; // Default: source affects target
+
+          console.log(`\n🔄 Processing connection to Service ${targetServiceId}`);
+          console.log(`🔄 Connection type: ${conn.connection_type}`);
+          console.log(`🔄 Propagation: ${propagation}`);
+
+          // Check if we should propagate based on propagation direction
+          // For CMDB-item-as-source, service-as-target:
+          // propagation = 'source_to_target' means: if source (CMDB item) is down, target (service) is affected
+          // propagation = 'target_to_source' means: if target (service) is down, source (CMDB item) is affected (not relevant here)
+          // propagation = 'both' means: bidirectional
+
+          if (propagation === 'source_to_target' || propagation === 'both') {
+            // Get target service details
+            const serviceResult = await pool.query(
+              'SELECT id, name, status FROM services WHERE id = $1',
+              [targetServiceId]
+            );
+
+            if (serviceResult.rows.length > 0) {
+              const service = serviceResult.rows[0];
+              console.log(`🔄 Target Service: "${service.name}" (ID: ${targetServiceId}, Current Status: ${service.status})`);
+
+              // Only update if service is currently active (don't override worse status)
+              if (service.status === 'active') {
+                console.log(`🔄 Updating Service "${service.name}" status to ${status} (source_to_target propagation)`);
+                await serviceModelForServices.updateServiceStatus(targetServiceId, status);
+                console.log(`✅ Updated Service "${service.name}" status to ${status}`);
+              } else {
+                console.log(`⏸️ Skipped Service "${service.name}" - already has status ${service.status} (worse or equal)`);
+              }
+            }
+          } else if (propagation === 'target_to_source') {
+            console.log(`⏸️ Skipped - propagation is target_to_source (target affects source, not relevant for forward propagation)`);
+          }
+        }
+
+        console.log(`\n🔄 --------------------------------------------`);
+        console.log(`🔄 CMDB ITEM TO SERVICE PROPAGATION COMPLETED`);
+        console.log(`🔄 ========================================\n`);
+      } catch (error) {
+        console.error(`❌ Error in CMDB item to service propagation from CMDB item ${id}:`, error);
+        // Don't throw error - forward propagation failure shouldn't break the main update
+      }
+
+      // 4. Reverse propagation to service items that depend on this CMDB item
+      // Find connections where this CMDB item is the TARGET and source is a SERVICE ITEM
+      try {
+        console.log(`\n🔄 Searching for service items that depend on this CMDB item...`);
+
+        const connectionsResult = await pool.query(
+          `SELECT c.*, ct.propagation
+           FROM connections c
+           LEFT JOIN connection_type_definitions ct ON ct.type_slug = c.connection_type
+           WHERE c.target_id = $1
+             AND c.workspace_id = $2
+             AND c.source_service_item_id IS NOT NULL`,
+          [id, workspaceId]
+        );
+
+        console.log(`🔄 Found ${connectionsResult.rows.length} connections where this CMDB item is target (from service items)`);
+
+        const serviceModelForItems = require('./serviceModel');
+
+        for (const conn of connectionsResult.rows) {
+          const sourceServiceItemId = conn.source_service_item_id;
+          const propagation = conn.propagation || 'source_to_target'; // Default: source affects target
+
+          console.log(`\n🔄 Processing connection from Service Item ${sourceServiceItemId}`);
+          console.log(`🔄 Connection type: ${conn.connection_type}`);
+          console.log(`🔄 Propagation: ${propagation}`);
+
+          // Check if we should propagate based on propagation direction
+          // For item-as-target, service-item-as-source:
+          // propagation = 'target_to_source' means: if target (CMDB item) is down, source (service item) is affected
+          // propagation = 'source_to_target' means: if source (service item) is down, target (CMDB item) is affected (not relevant here)
+          // propagation = 'both' means: bidirectional
+
+          if (propagation === 'target_to_source' || propagation === 'both') {
+            // Get source service item details
+            const serviceItemResult = await pool.query(
+              'SELECT id, name, status FROM service_items WHERE id = $1',
+              [sourceServiceItemId]
+            );
+
+            if (serviceItemResult.rows.length > 0) {
+              const serviceItem = serviceItemResult.rows[0];
+              console.log(`🔄 Source Service Item: "${serviceItem.name}" (ID: ${sourceServiceItemId}, Current Status: ${serviceItem.status})`);
+
+              // Only update if service item is currently active (don't override worse status)
+              if (serviceItem.status === 'active') {
+                console.log(`🔄 Updating Service Item "${serviceItem.name}" status to ${status} (target_to_source propagation)`);
+                await serviceModelForItems.updateServiceItemStatus(sourceServiceItemId, status);
+                console.log(`✅ Updated Service Item "${serviceItem.name}" status to ${status}`);
+              } else {
+                console.log(`⏸️ Skipped Service Item "${serviceItem.name}" - already has status ${serviceItem.status} (worse or equal)`);
+              }
+            }
+          } else if (propagation === 'source_to_target') {
+            console.log(`⏸️ Skipped - propagation is source_to_target (source affects target, not relevant for reverse propagation)`);
+          }
+        }
+
+        console.log(`\n🔄 --------------------------------------------`);
+        console.log(`🔄 CMDB ITEM REVERSE PROPAGATION COMPLETED`);
+        console.log(`🔄 ========================================\n`);
+      } catch (error) {
+        console.error(`❌ Error in reverse propagation from CMDB item ${id}:`, error);
+        // Don't throw error - reverse propagation failure shouldn't break the main update
       }
     }
 
