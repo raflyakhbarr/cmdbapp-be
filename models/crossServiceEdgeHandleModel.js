@@ -81,4 +81,5 @@ module.exports = {
   upsertCrossServiceEdgeHandle,
   deleteCrossServiceEdgeHandle,
   bulkUpsertCrossServiceEdgeHandles,
+  getCrossServiceEdgeHandlesByWorkspace: getAllCrossServiceEdgeHandles, // Alias for clarity
 };

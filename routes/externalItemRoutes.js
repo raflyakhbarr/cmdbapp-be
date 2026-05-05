@@ -44,7 +44,7 @@ router.get('/item/:externalServiceItemId', authenticateToken, async (req, res) =
 
 // Save or update external item position
 router.post('/', authenticateToken, async (req, res) => {
-  const { workspaceId, serviceId, externalServiceItemId, position } = req.body;
+  const { workspaceId, serviceId, externalServiceItemId, position, skipRefresh } = req.body;
 
   if (!workspaceId || !serviceId || !externalServiceItemId || !position) {
     return res.status(400).json({
@@ -53,14 +53,36 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 
   try {
+    console.log('\n💾 [EXTERNAL ITEM POSITION] Saving position:', {
+      workspaceId,
+      serviceId,
+      externalServiceItemId,
+      position,
+      skipRefresh
+    });
+
     const result = await externalItemModel.saveExternalItemPosition(
       workspaceId,
       serviceId,
       externalServiceItemId,
       position
     );
+
+    // ✅ FIX: Emit socket event for realtime updates in shared view
+    // Only emit if skipRefresh is false or not provided
+    if (!skipRefresh) {
+      const { emitExternalItemPositionUpdate } = require('../socket');
+      if (emitExternalItemPositionUpdate) {
+        await emitExternalItemPositionUpdate(externalServiceItemId, position, workspaceId, serviceId);
+        console.log('✅ [EXTERNAL ITEM POSITION] Socket event emitted');
+      }
+    } else {
+      console.log('⏭️ [EXTERNAL ITEM POSITION] Skipping socket refresh (skipRefresh=true)');
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    console.error('Error saving external item position:', err);
     res.status(500).json({ error: err.message });
   }
 });

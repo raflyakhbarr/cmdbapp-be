@@ -19,6 +19,37 @@ const getExternalItemPositionsByService = (workspaceId, serviceId) => {
   );
 };
 
+// Get all external item positions for a workspace
+// Returns positions grouped by external_service_item_id with service_id
+// Frontend should filter by service_id when displaying
+const getExternalItemPositionsByWorkspace = (workspaceId) => {
+  console.log('\n🔍 [externalItemModel] getExternalItemPositionsByWorkspace called:');
+  console.log('🔍 workspaceId:', workspaceId);
+
+  const queryPromise = pool.query(
+    `SELECT
+       external_service_item_id,
+       service_id,
+       position,
+       updated_at
+     FROM external_item_positions
+     WHERE workspace_id = $1
+     ORDER BY external_service_item_id, updated_at DESC`,
+    [workspaceId]
+  );
+
+  queryPromise.then(result => {
+    console.log('🔍 Query result rows.length:', result.rows.length);
+    console.log('🔍 Query result rows:', result.rows);
+    console.log('🔍 ========================================\n');
+  }).catch(err => {
+    console.error('❌ Query error:', err);
+    console.error('❌ ========================================\n');
+  });
+
+  return queryPromise;
+};
+
 // Save or update external item position
 const saveExternalItemPosition = (workspaceId, serviceId, externalServiceItemId, position) => {
   return pool.query(
@@ -127,6 +158,7 @@ const saveCrossServiceEdgeHandle = (edgeId, sourceServiceId, targetServiceId, so
 module.exports = {
   getExternalItemPosition,
   getExternalItemPositionsByService,
+  getExternalItemPositionsByWorkspace,
   saveExternalItemPosition,
   deleteExternalItemPosition,
   clearExternalPositionsByService,

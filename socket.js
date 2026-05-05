@@ -144,4 +144,24 @@ const emitCrossServiceConnectionUpdate = async (sourceServiceItemId, targetServi
   }
 };
 
-module.exports = { initializeSocket, emitCmdbUpdate, emitServiceUpdate, emitServiceItemStatusUpdate, emitCrossServiceConnectionUpdate };
+// Emit event untuk external item position updates (for realtime shared view updates)
+const emitExternalItemPositionUpdate = async (externalServiceItemId, position, workspaceId, serviceId) => {
+  if (!io) {
+    console.warn('⚠️ Socket.IO belum diinisialisasi. Lewati emit.');
+    return;
+  }
+  try {
+    console.log(`🔔 Emitting external_item_position_update: item=${externalServiceItemId}, service=${serviceId}, workspace=${workspaceId}, position=`, position);
+    io.emit('external_item_position_update', {
+      externalServiceItemId,
+      position,
+      workspaceId,
+      serviceId
+    });
+    console.log(`✅ Successfully emitted external_item_position_update event`);
+  } catch (err) {
+    console.error('❌ Failed to emit external item position update:', err);
+  }
+};
+
+module.exports = { initializeSocket, emitCmdbUpdate, emitServiceUpdate, emitServiceItemStatusUpdate, emitCrossServiceConnectionUpdate, emitExternalItemPositionUpdate };

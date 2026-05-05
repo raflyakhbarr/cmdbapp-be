@@ -12,6 +12,9 @@ const { env } = require('process');
 const { authenticateToken } = require('../middleware/auth');
 
 const shareLinkModel = new ShareLinkModel(pool);
+const serviceEdgeHandleModel = require('../models/serviceEdgeHandleModel');
+const crossServiceEdgeHandleModel = require('../models/crossServiceEdgeHandleModel');
+const externalItemModel = require('../models/externalItemModel');
 
 /**
  * PUBLIC ROUTE: Get shared CMDB data by share token
@@ -73,15 +76,41 @@ router.get('/shared/:token', async (req, res) => {
     const userAgent = req.get('user-agent');
     await shareLinkModel.logAccess(shareLink.id, visitorIp, userAgent);
 
+    // ✅ FIX: Filter external item positions by service_id if available
+    // This ensures external items use positions from the viewing service (not from other services)
+    let externalItemPositionsResult;
+    if (shareLink.service_id) {
+      console.log('\n🎯 [BACKEND /shared/:token] Filtering external_item_positions by service_id:', shareLink.service_id);
+      externalItemPositionsResult = await externalItemModel.getExternalItemPositionsByService(
+        workspaceId,
+        shareLink.service_id
+      );
+    } else {
+      console.log('\n📊 [BACKEND /shared/:token] No service_id in share link, returning ALL external item positions');
+      externalItemPositionsResult = await externalItemModel.getExternalItemPositionsByWorkspace(workspaceId);
+    }
+
     // Get all data for the workspace
-    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult, serviceToServiceConnectionsResult, crossServiceConnectionsResult] = await Promise.all([
+    const [itemsResult, connectionsResult, groupsResult, edgeHandlesResult, serviceToServiceConnectionsResult, crossServiceConnectionsResult, serviceEdgeHandlesResult, crossServiceEdgeHandlesResult, connectionTypesResult] = await Promise.all([
       cmdbModel.getAllItems(workspaceId),
       connectionModel.getAllConnections(workspaceId),
       groupModel.getAllGroups(workspaceId),
       edgeHandleModel.getAllEdgeHandles(),
       require('../models/serviceToServiceConnectionModel').getServiceToServiceConnectionsByWorkspace(workspaceId),
-      require('../models/crossServiceConnectionModel').getCrossServiceConnectionsByWorkspace(workspaceId)
+      require('../models/crossServiceConnectionModel').getCrossServiceConnectionsByWorkspace(workspaceId),
+      serviceEdgeHandleModel.getServiceEdgeHandlesByWorkspace(workspaceId),
+      crossServiceEdgeHandleModel.getCrossServiceEdgeHandlesByWorkspace(workspaceId),
+      // externalItemPositionsResult - moved above (line 95-103)
+      connectionModel.getConnectionTypeDefinitions()
     ]);
+
+    // Debug external item positions
+    console.log('\n📊 [BACKEND /shared/:token] External Item Positions Debug:');
+    console.log('📊 workspace_id:', workspaceId);
+    console.log('📊 share_link.service_id:', shareLink.service_id);
+    console.log('📊 externalItemPositionsResult.rows.length:', externalItemPositionsResult.rows.length);
+    console.log('📊 Sample positions:', externalItemPositionsResult.rows.slice(0, 3));
+    console.log('📊 ========================================\n');
 
     // Get services for all items WITH service items
     const items = itemsResult.rows;
@@ -100,9 +129,47 @@ router.get('/shared/:token', async (req, res) => {
               [service.id]
             );
 
+            // Get internal item-to-item connections for this service
+            const serviceItemIds = serviceItemsResult.rows.map(si => si.id);
+            let serviceConnections = [];
+            if (serviceItemIds.length > 0) {
+              const connectionsResult = await pool.query(
+                `SELECT * FROM service_connections
+                 WHERE service_id = $1 AND source_id = ANY($2) AND target_id = ANY($2)`,
+                [service.id, serviceItemIds]
+              );
+              serviceConnections = connectionsResult.rows;
+            }
+
+            // Get service groups for this service
+            const groupsResult = await pool.query(
+              'SELECT * FROM service_groups WHERE service_id = $1',
+              [service.id]
+            );
+
+            // Get group connections for this service
+            const groupIds = groupsResult.rows.map(g => g.id);
+            let groupConnections = [];
+            if (groupIds.length > 0) {
+              // Query includes: group-to-group (source_id, target_id) AND group-to-item (source_group_id, target_item_id)
+              const groupConnResult = await pool.query(
+                `SELECT * FROM service_group_connections
+                 WHERE service_id = $1 AND workspace_id = $2
+                 AND (
+                   source_id = ANY($3) OR target_id = ANY($3)
+                   OR source_group_id = ANY($3) OR target_item_id = ANY($4)
+                 )`,
+                [service.id, workspaceId, groupIds, serviceItemIds]
+              );
+              groupConnections = groupConnResult.rows;
+            }
+
             const serviceWithItems = {
               ...service,
-              service_items: serviceItemsResult.rows
+              service_items: serviceItemsResult.rows,
+              service_connections: serviceConnections,
+              service_groups: groupsResult.rows,
+              service_group_connections: groupConnections
             };
 
             // Add to all services array
@@ -126,13 +193,19 @@ router.get('/shared/:token', async (req, res) => {
       connections: connectionsResult.rows,
       groups: groupsResult.rows,
       edge_handles: edgeHandlesResult.rows,
-      serviceToServiceConnections: serviceToServiceConnectionsResult.rows, // Changed to camelCase
-      crossServiceConnections: crossServiceConnectionsResult.rows, // Add cross-service connections
+      serviceToServiceConnections: serviceToServiceConnectionsResult.rows,
+      crossServiceConnections: crossServiceConnectionsResult.rows,
+      service_edge_handles: serviceEdgeHandlesResult.rows,
+      cross_service_edge_handles: crossServiceEdgeHandlesResult.rows,
+      external_item_positions: externalItemPositionsResult.rows,
+      connection_types: connectionTypesResult.rows,
       share_info: {
         token: shareLink.token,
         created_at: shareLink.created_at,
         expires_at: shareLink.expires_at,
-        has_password: hasPassword
+        has_password: hasPassword,
+        service_id: shareLink.service_id, // ✅ ADD: Service being shared
+        cmdb_item_id: shareLink.cmdb_item_id // ✅ ADD: CMDB item being shared
       }
     });
   } catch (err) {

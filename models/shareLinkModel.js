@@ -35,7 +35,7 @@ class ShareLinkModel {
   /**
    * Create a new share link
    */
-  async create({ workspaceId, createdBy, expiresAt, password = null }) {
+  async create({ workspaceId, createdBy, expiresAt, password = null, serviceId = null, cmdbItemId = null }) {
     const token = await this.generateUniqueToken();
     let passwordHash = null;
 
@@ -44,8 +44,8 @@ class ShareLinkModel {
     }
 
     const query = `
-      INSERT INTO share_links (token, workspace_id, created_by, expires_at, password_hash)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO share_links (token, workspace_id, created_by, expires_at, password_hash, service_id, cmdb_item_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
 
@@ -54,7 +54,9 @@ class ShareLinkModel {
       workspaceId,
       createdBy,
       expiresAt || null,
-      passwordHash
+      passwordHash,
+      serviceId || null,
+      cmdbItemId || null
     ]);
 
     return result.rows[0];

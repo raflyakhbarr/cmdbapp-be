@@ -19,6 +19,15 @@ const getAllServiceEdgeHandles = async (serviceId, workspaceId) => {
   return handles;
 };
 
+// Get all service edge handles for a workspace
+const getServiceEdgeHandlesByWorkspace = async (workspaceId) => {
+  const result = await pool.query(
+    'SELECT * FROM service_edge_handles WHERE workspace_id = $1',
+    [workspaceId]
+  );
+  return result;
+};
+
 // Get a specific service edge handle by edge_id
 const getServiceEdgeHandle = async (edgeId) => {
   const result = await pool.query(
@@ -88,4 +97,5 @@ module.exports = {
   upsertServiceEdgeHandle,
   deleteServiceEdgeHandle,
   bulkUpsertServiceEdgeHandles,
+  getServiceEdgeHandlesByWorkspace,
 };
