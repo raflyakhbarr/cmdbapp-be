@@ -22,14 +22,6 @@ router.post('/generate', authenticateToken, async (req, res) => {
     const { calculateExpirationDate } = require('../utils/shareUtils');
     const expiresAt = calculateExpirationDate(expiration || 'never');
 
-    console.log('\n🔗 [SHARE LINK] Creating share link:', {
-      workspace_id,
-      service_id: service_id || null,
-      cmdb_item_id: cmdb_item_id || null,
-      expiration,
-      createdBy: userId
-    });
-
     const shareLink = await shareLinkModel.create({
       workspaceId: workspace_id,
       createdBy: userId,
@@ -37,13 +29,6 @@ router.post('/generate', authenticateToken, async (req, res) => {
       password: password || null,
       serviceId: service_id || null,      // ✅ ADD: Service context
       cmdbItemId: cmdb_item_id || null    // ✅ ADD: CMDB item context
-    });
-
-    console.log('✅ [SHARE LINK] Created successfully:', {
-      id: shareLink.id,
-      token: shareLink.token,
-      service_id: shareLink.service_id,
-      cmdb_item_id: shareLink.cmdb_item_id
     });
 
     res.status(201).json({

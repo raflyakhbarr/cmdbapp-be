@@ -23,10 +23,7 @@ const getExternalItemPositionsByService = (workspaceId, serviceId) => {
 // Returns positions grouped by external_service_item_id with service_id
 // Frontend should filter by service_id when displaying
 const getExternalItemPositionsByWorkspace = (workspaceId) => {
-  console.log('\n🔍 [externalItemModel] getExternalItemPositionsByWorkspace called:');
-  console.log('🔍 workspaceId:', workspaceId);
-
-  const queryPromise = pool.query(
+  return pool.query(
     `SELECT
        external_service_item_id,
        service_id,
@@ -37,17 +34,6 @@ const getExternalItemPositionsByWorkspace = (workspaceId) => {
      ORDER BY external_service_item_id, updated_at DESC`,
     [workspaceId]
   );
-
-  queryPromise.then(result => {
-    console.log('🔍 Query result rows.length:', result.rows.length);
-    console.log('🔍 Query result rows:', result.rows);
-    console.log('🔍 ========================================\n');
-  }).catch(err => {
-    console.error('❌ Query error:', err);
-    console.error('❌ ========================================\n');
-  });
-
-  return queryPromise;
 };
 
 // Save or update external item position

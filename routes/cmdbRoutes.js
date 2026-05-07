@@ -346,21 +346,6 @@ router.post('/', authenticateToken, async (req, res) => {
 router.post('/connections', authenticateToken, async (req, res) => {
   const { source_id, target_id, workspace_id, connection_type, direction, target_service_id, target_service_item_id, source_service_id, source_service_item_id } = req.body;
 
-  // Log connection creation
-  console.log('\n🔗 ========================================');
-  console.log('🔗 BACKEND: Creating Connection');
-  console.log('🔗 ========================================');
-  console.log('🔗 source_id:', source_id);
-  console.log('🔗 source_service_id:', source_service_id);
-  console.log('🔗 source_service_item_id:', source_service_item_id);
-  console.log('🔗 target_id:', target_id);
-  console.log('🔗 target_service_id:', target_service_id);
-  console.log('🔗 target_service_item_id:', target_service_item_id);
-  console.log('🔗 workspace_id:', workspace_id);
-  console.log('🔗 connection_type:', connection_type);
-  console.log('🔗 direction:', direction);
-  console.log('🔗 ========================================\n');
-
   // Allow various source/target combinations
   const hasSource = source_id || source_service_id || source_service_item_id;
   const hasTarget = target_id || target_service_id || target_service_item_id;
@@ -385,10 +370,6 @@ router.post('/connections', authenticateToken, async (req, res) => {
       source_service_id || null,
       source_service_item_id || null
     );
-
-    console.log('\n✅ Connection created successfully!');
-    console.log('✅ Connection ID:', result.rows[0].id);
-    console.log('✅ ========================================\n');
 
     await emitCmdbUpdate(cmdbModel);
     res.status(201).json(result.rows[0]);

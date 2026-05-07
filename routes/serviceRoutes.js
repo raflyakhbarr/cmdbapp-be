@@ -304,8 +304,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     }
     const result = await serviceModel.updateServiceStatus(id, status);
 
-    // Log sebelum emit untuk debugging
-    console.log(`🔧 Backend: Emitting service_update for serviceId=${id}, workspaceId=${workspaceId}`);
     await emitServiceUpdate(id, workspaceId);
 
     res.json(result.rows[0]);
@@ -359,7 +357,6 @@ router.post('/:id/propagate-status', authenticateToken, async (req, res) => {
     await serviceModel.updateServiceStatus(id, status);
 
     // Then trigger recursive propagation to connected services
-    console.log(`🔄 Manual recursive propagation triggered for service ${id} with status ${status}, max_depth=${max_depth}`);
     const affectedServices = await serviceModel.propagateStatusToConnectedServices(
       id,
       status,
@@ -541,13 +538,6 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { name, type, description, status, ip, domain, port, category, location, group_id, order_in_group } = req.body;
 
-  console.log('\n📝 ========================================');
-  console.log('📝 PUT /service-items/items/:id');
-  console.log('📝 ========================================');
-  console.log('📝 Service Item ID:', id);
-  console.log('📝 New Status:', status);
-  console.log('📝 ========================================\n');
-
   if (!name) {
     return res.status(400).json({ error: 'name is required' });
   }
@@ -560,9 +550,6 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
     }
 
     const oldStatus = itemBeforeUpdate.rows[0].status;
-    console.log(`📝 Old Status: ${oldStatus}`);
-    console.log(`📝 New Status: ${status}`);
-    console.log(`📝 Status Changed: ${status !== undefined && status !== oldStatus}`);
 
     const result = await serviceModel.updateServiceItem(id, name, type, description, status, ip, domain, port, category, location, group_id, order_in_group);
 
@@ -572,19 +559,8 @@ router.put('/items/:id', authenticateToken, async (req, res) => {
 
     // If status changed, use updateServiceItemStatus to trigger CMDB propagation
     if (status !== undefined && status !== oldStatus) {
-      console.log(`\n🔄 ========================================`);
-      console.log(`🔄 STATUS CHANGED - Triggering Propagation`);
-      console.log(`🔄 ========================================`);
-      console.log(`🔄 Service Item ID: ${id}`);
-      console.log(`🔄 Service Item Name: ${itemBeforeUpdate.rows[0].name}`);
-      console.log(`🔄 Old Status: ${oldStatus} → New Status: ${status}`);
-      console.log(`🔄 Service ID: ${itemBeforeUpdate.rows[0].service_id}`);
-      console.log(`🔄 Workspace ID: ${itemBeforeUpdate.rows[0].workspace_id}`);
-      console.log(`🔄 ========================================\n`);
-
       await serviceModel.updateServiceItemStatus(id, status);
       await emitServiceItemStatusUpdate(id, status, itemBeforeUpdate.rows[0].workspace_id, itemBeforeUpdate.rows[0].service_id);
-      console.log(`✅ Emitted service_item_status_update on PUT: item=${id}, status=${status}, service=${itemBeforeUpdate.rows[0].service_id}`);
     }
 
     res.json(result.rows[0]);
@@ -617,8 +593,6 @@ router.put('/items/:id/position', authenticateToken, async (req, res) => {
     if (!skipRefresh) {
       // Emit service update dengan serviceId dan workspaceId dari item SEBELUM update
       await emitServiceUpdate(itemBeforeUpdate.rows[0].service_id, itemBeforeUpdate.rows[0].workspace_id);
-    } else {
-      console.log(`⏭️ Skipping service update emit for item ${id} (skipRefresh=true)`);
     }
 
     res.json(result.rows[0]);

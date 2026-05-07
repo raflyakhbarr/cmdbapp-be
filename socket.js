@@ -6,9 +6,8 @@ const initializeSocket = (server) => {
     cors: { origin: "http://localhost:5173" }
   });
   io.on('connection', (socket) => {
-    console.log('✅ Client connected');
     socket.on('disconnect', () => {
-      console.log('🔌 Client disconnected');
+      // Client disconnected
     });
   });
 };
@@ -44,9 +43,6 @@ const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
   try {
     const pool = require('./db');
 
-    // Log input parameters
-    console.log(`🔧 emitServiceUpdate called with: serviceIdOrItemId=${serviceIdOrItemId}, workspaceId=${workspaceId}`);
-
     // First, check if this ID is a service ID directly (since we're calling from service routes)
     const serviceResult = await pool.query(
       'SELECT id FROM services WHERE id = $1',
@@ -57,7 +53,6 @@ const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
     if (serviceResult.rows.length > 0) {
       // It's a service ID
       actualServiceId = serviceIdOrItemId;
-      console.log(`✅ Confirmed as service ID: ${actualServiceId}`);
     } else {
       // Check if it's a service item ID
       const itemResult = await pool.query(
@@ -68,7 +63,6 @@ const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
       if (itemResult.rows.length > 0) {
         // It's a service item ID, get the service_id
         actualServiceId = itemResult.rows[0].service_id;
-        console.log(`✅ Converted from service item ID ${serviceIdOrItemId} to service ID: ${actualServiceId}`);
       } else {
         console.warn(`⚠️ Could not find service or service item with ID: ${serviceIdOrItemId}`);
         return;
@@ -77,7 +71,6 @@ const emitServiceUpdate = async (serviceIdOrItemId, workspaceId) => {
 
     // Emit event untuk service update dengan serviceId dan workspaceId
     io.emit('service_update', { serviceId: actualServiceId, workspaceId });
-    console.log(`✅ Service update emitted: service=${actualServiceId}, workspace=${workspaceId}`);
   } catch (err) {
     console.error('Failed to emit service update:', err);
   }
@@ -90,14 +83,12 @@ const emitServiceItemStatusUpdate = async (serviceItemId, newStatus, workspaceId
     return;
   }
   try {
-    console.log(`🔔 Emitting service_item_status_update: item=${serviceItemId}, status=${newStatus}, service=${serviceId}, workspace=${workspaceId}`);
     io.emit('service_item_status_update', {
       serviceItemId,
       newStatus,
       workspaceId,
       serviceId
     });
-    console.log(`✅ Successfully emitted service_item_status_update event`);
   } catch (err) {
     console.error('❌ Failed to emit service item status update:', err);
   }
@@ -134,7 +125,6 @@ const emitCrossServiceConnectionUpdate = async (sourceServiceItemId, targetServi
           targetServiceId,
           workspaceId
         });
-        console.log(`✅ Cross-service connection update emitted: sourceService=${sourceServiceId}, targetService=${targetServiceId}, workspace=${workspaceId}`);
       } else {
         console.warn('⚠️ Could not find both service items for socket emit');
       }
@@ -151,14 +141,12 @@ const emitExternalItemPositionUpdate = async (externalServiceItemId, position, w
     return;
   }
   try {
-    console.log(`🔔 Emitting external_item_position_update: item=${externalServiceItemId}, service=${serviceId}, workspace=${workspaceId}, position=`, position);
     io.emit('external_item_position_update', {
       externalServiceItemId,
       position,
       workspaceId,
       serviceId
     });
-    console.log(`✅ Successfully emitted external_item_position_update event`);
   } catch (err) {
     console.error('❌ Failed to emit external item position update:', err);
   }
