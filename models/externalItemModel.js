@@ -102,7 +102,7 @@ const getOrCreateExternalItemPosition = async (workspaceId, serviceId, externalS
          'y', 100 + floor(random() * 10)::int * 150
        ),
        true,
-       md5($2 || '-' || $3 || '-' || extract(epoch from now))
+       md5($2 || '-' || $3 || '-' || extract(epoch from now()))
      )
      ON CONFLICT (workspace_id, service_id, external_service_item_id)
      DO UPDATE SET position = external_item_positions.position

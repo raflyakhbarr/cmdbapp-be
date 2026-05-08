@@ -95,7 +95,7 @@ BEGIN
         'y', v_offset_y + floor(v_index / 4.0) * 150
       ),
       true,
-      md5(p_service_id || '-' || v_item_id || '-' || extract(epoch from now))
+      md5(p_service_id || '-' || v_item_id || '-' || extract(epoch from now()))
     )
     ON CONFLICT (workspace_id, service_id, external_service_item_id)
     DO NOTHING;
@@ -104,10 +104,11 @@ BEGIN
   END LOOP;
 
   -- Return semua positions setelah loop selesai (hanya sekali!)
+  -- Note: Don't use table alias for the column to avoid ambiguity with RETURNS TABLE
   RETURN QUERY
   SELECT
     eip.id,
-    eip.external_service_item_id,
+    eip.external_service_item_id AS external_service_item_id,
     eip.position AS item_position
   FROM external_item_positions eip
   WHERE eip.workspace_id = p_workspace_id
