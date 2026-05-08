@@ -321,8 +321,8 @@ const updateServiceStatus = async (id, status) => {
     console.log(`✅ Recursive propagation complete. Affected ${affectedServices.length} services:`, affectedServices);
 
     // NEW: Propagate to external service items via cross-service connections
-    // When a service goes inactive, all its service items should propagate to connected external service items
-    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
+    // When a service goes inactive/disabled, all its service items should propagate to connected external service items
+    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
       console.log(`\n🌐 ============================================`);
       console.log(`🌐 CROSS-SERVICE PROPAGATION FROM SERVICE LEVEL`);
       console.log(`🌐 ============================================`);
@@ -371,8 +371,8 @@ const updateServiceStatus = async (id, status) => {
     } // End of if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned')
 
     // IMPORTANT: Also propagate to CMDB items via SERVICE ITEM connections
-    // When service goes inactive, all service items in it should propagate to their connected CMDB items
-    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
+    // When service goes inactive/disabled, all service items in it should propagate to their connected CMDB items
+    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
       console.log(`\n📦 ============================================`);
       console.log(`📦 CMDB ITEM PROPAGATION FROM SERVICE ITEMS STARTED`);
       console.log(`📦 ============================================`);
@@ -638,8 +638,8 @@ const updateServiceItemStatus = async (id, status) => {
   // Only cross-service propagation should affect external service items
 
   // Propagate to connected service items via cross-service connections
-  // Only propagate if status is problematic (inactive, maintenance, decommissioned)
-  if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
+  // Only propagate if status is problematic (inactive, maintenance, decommissioned, disabled)
+  if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
     console.log(`\n🌐 ============================================`);
     console.log(`🌐 CROSS-SERVICE PROPAGATION STARTED`);
     console.log(`🌐 ============================================`);
@@ -855,8 +855,8 @@ const updateServiceItemStatus = async (id, status) => {
     }
 
     // NEW: Propagate to connected CMDB items via connections table
-    // Only propagate if status is problematic (inactive, maintenance, decommissioned)
-    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned') {
+    // Only propagate if status is problematic (inactive, maintenance, decommissioned, disabled)
+    if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
       console.log(`\n📦 ============================================`);
       console.log(`📦 CMDB ITEM PROPAGATION STARTED`);
       console.log(`📦 ============================================`);
