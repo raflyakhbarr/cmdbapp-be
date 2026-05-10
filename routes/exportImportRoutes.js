@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const XLSX = require('xlsx');
 const { authenticateToken } = require('../middleware/auth');
-const { getExportData, getImportTemplate, validateImportData, executeImport } = require('../controllers/exportImportController');
+const { getExportData, getSimplifiedExportData, getImportTemplate, getBulkImportTemplate, validateImportData, executeImport, validateBulkImportData, executeBulkImport } = require('../controllers/exportImportController');
 
 // Export to Excel
 router.get('/cmdb/export/excel', authenticateToken, async (req, res) => {
@@ -123,7 +123,31 @@ router.get('/cmdb/export/json', authenticateToken, async (req, res) => {
   }
 });
 
-// Download template
+// Export for Bulk Edit (simplified format with name references)
+router.get('/cmdb/export/bulk-edit', authenticateToken, async (req, res) => {
+  try {
+    const { workspace_id } = req.query;
+
+    if (!workspace_id) {
+      return res.status(400).json({ error: 'workspace_id is required' });
+    }
+
+    console.log('Starting bulk-edit export for workspace:', workspace_id);
+    const excelBuffer = await getSimplifiedExportData(workspace_id);
+    console.log('Export completed, buffer size:', excelBuffer?.length);
+
+    const filename = `cmdb_bulk_edit_${workspace_id}_${Date.now()}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    res.send(excelBuffer);
+  } catch (err) {
+    console.error('Bulk edit export error:', err);
+    res.status(500).json({ error: 'Export failed: ' + err.message });
+  }
+});
+
+// Download template (OLD FORMAT - for backup/restore with IDs)
 router.get('/cmdb/import/template', authenticateToken, async (req, res) => {
   try {
     const template = await getImportTemplate();
@@ -135,6 +159,22 @@ router.get('/cmdb/import/template', authenticateToken, async (req, res) => {
     res.send(template);
   } catch (err) {
     console.error('Template download error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download bulk import template (NEW FORMAT - simplified with name references)
+router.get('/cmdb/import/bulk-template', authenticateToken, async (req, res) => {
+  try {
+    const template = await getBulkImportTemplate();
+
+    const filename = `cmdb_bulk_import_template_${Date.now()}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    res.send(template);
+  } catch (err) {
+    console.error('Bulk template download error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -209,6 +249,44 @@ router.post('/cmdb/import/confirm', authenticateToken, async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('Import confirm error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ BULK IMPORT ROUTES (NEW - Simplified Format) ============
+
+// Bulk Import - Validate
+router.post('/cmdb/import/bulk/validate', authenticateToken, async (req, res) => {
+  try {
+    const { workspace_id, file_data } = req.body;
+
+    if (!workspace_id || !file_data) {
+      return res.status(400).json({ error: 'workspace_id and file_data are required' });
+    }
+
+    const result = await validateBulkImportData(workspace_id, file_data);
+
+    res.json(result);
+  } catch (err) {
+    console.error('Bulk import validate error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk Import - Execute
+router.post('/cmdb/import/bulk/execute', authenticateToken, async (req, res) => {
+  try {
+    const { workspace_id, user_id, file_data } = req.body;
+
+    if (!workspace_id || !file_data) {
+      return res.status(400).json({ error: 'workspace_id and file_data are required' });
+    }
+
+    const result = await executeBulkImport(workspace_id, user_id, file_data);
+
+    res.json(result);
+  } catch (err) {
+    console.error('Bulk import execute error:', err);
     res.status(500).json({ error: err.message });
   }
 });
