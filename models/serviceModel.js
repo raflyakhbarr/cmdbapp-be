@@ -158,6 +158,7 @@ const propagateStatusToConnectedServices = async (
   depth = 0,
   maxDepth = 10
 ) => {
+  /* DISABLED: propagateStatusToConnectedServices - no database updates
   // Safety check: prevent infinite recursion
   if (depth >= maxDepth) {
     console.warn(`⚠️ Max recursion depth (${maxDepth}) reached for service ${serviceId}`);
@@ -250,12 +251,11 @@ const propagateStatusToConnectedServices = async (
 
       affectedServices.push(...nestedAffectedServices);
     }
+    return [];
+  } // end disabled - return empty array
+  */
 
-    return affectedServices;
-  } catch (error) {
-    console.error(`❌ Error propagating status from service ${serviceId}:`, error);
-    throw error;
-  }
+  return []; // disabled function returns empty array
 };
 
 // Update service status only with recursive propagation
@@ -288,8 +288,9 @@ const updateServiceStatus = async (id, status) => {
   }
 
   // Only propagate if we have a workspace_id and status is 'inactive' or 'disabled'
+  // ENABLED: When service dies, all its service items also die
   if (workspaceId && (status === 'inactive' || status === 'disabled' || status === 'maintenance')) {
-    // First propagate to service items if any exist
+    // Service items propagation - when service dies, all its items also die
     if (itemsResult.rows.length > 0) {
       const updateResult = await pool.query(
         `UPDATE service_items
@@ -307,7 +308,8 @@ const updateServiceStatus = async (id, status) => {
       }
     }
 
-    // NEW: Recursively propagate to connected services (even if no service items)
+    /*
+    // DISABLED: Recursively propagate to connected services - no database updates
     console.log(`🔄 Starting recursive propagation from service ${id} with status ${status}`);
     const affectedServices = await propagateStatusToConnectedServices(
       id,
@@ -319,9 +321,10 @@ const updateServiceStatus = async (id, status) => {
     );
 
     console.log(`✅ Recursive propagation complete. Affected ${affectedServices.length} services:`, affectedServices);
+    */
 
-    // NEW: Propagate to external service items via cross-service connections
-    // When a service goes inactive/disabled, all its service items should propagate to connected external service items
+    // DISABLED: Propagate to external service items via cross-service connections
+    /*
     if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
       console.log(`\n🌐 ============================================`);
       console.log(`🌐 CROSS-SERVICE PROPAGATION FROM SERVICE LEVEL`);
@@ -369,7 +372,10 @@ const updateServiceStatus = async (id, status) => {
       }
 
     } // End of if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned')
+    */
 
+    /*
+    // DISABLED: CMDB item propagation from service items
     // IMPORTANT: Also propagate to CMDB items via SERVICE ITEM connections
     // When service goes inactive/disabled, all service items in it should propagate to their connected CMDB items
     if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
@@ -448,9 +454,13 @@ const updateServiceStatus = async (id, status) => {
         console.error(`❌ Error in CMDB item propagation from service items in service ${id}:`, error);
         // Don't throw - service-level propagation should continue
       }
+    }
+    */
 
-      // NEW: Propagate to connected CMDB items via SERVICE as source (direct service-to-CMDB connections)
-      try {
+    /*
+    // DISABLED: Propagate to connected CMDB items via SERVICE as source (direct service-to-CMDB connections)
+    // NEW: Propagate to connected CMDB items via SERVICE as source (direct service-to-CMDB connections)
+    try {
         const connectionsResult = await pool.query(
           `SELECT c.*, ct.propagation
            FROM connections c
@@ -514,6 +524,7 @@ const updateServiceStatus = async (id, status) => {
         // Don't throw - service-level propagation should continue even if CMDB item propagation fails
       }
     }
+    */
   }
 
   return result;
@@ -638,7 +649,9 @@ const updateServiceItemStatus = async (id, status) => {
   // Only cross-service propagation should affect external service items
 
   // Propagate to connected service items via cross-service connections
+  // PROPAGATION DISABLED: Only visual edge propagation, no database status updates
   // Only propagate if status is problematic (inactive, maintenance, decommissioned, disabled)
+  /*
   if (status === 'inactive' || status === 'maintenance' || status === 'decommissioned' || status === 'disabled') {
     console.log(`\n🌐 ============================================`);
     console.log(`🌐 CROSS-SERVICE PROPAGATION STARTED`);
@@ -941,9 +954,10 @@ const updateServiceItemStatus = async (id, status) => {
       } catch (error) {
         console.error(`❌ Error in CMDB item propagation from service item ${id}:`, error);
         // Don't throw error, just log it - propagation failure shouldn't break the main update
-      }
-    }
-  }
+      } // close catch block at line 957
+    } // close CMDB propagation if block at line 875
+  } // close cross-service propagation if block at line 656
+*/ // close the commented-out cross-service propagation block (line 657)
 
   console.log(`\n🎯 ============================================`);
   console.log(`🎯 UPDATE SERVICE ITEM STATUS COMPLETED`);
