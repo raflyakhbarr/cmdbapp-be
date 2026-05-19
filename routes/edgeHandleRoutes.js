@@ -8,7 +8,8 @@ const { authenticateToken } = require('../middleware/auth');
 // Get all edge handles
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const result = await edgeHandleModel.getAllEdgeHandles();
+    const { workspace_id } = req.query;
+    const result = await edgeHandleModel.getAllEdgeHandles(workspace_id);
     
     // Convert to object format { edgeId: { sourceHandle, targetHandle } }
     const edgeHandles = {};

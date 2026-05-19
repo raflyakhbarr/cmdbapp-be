@@ -261,6 +261,44 @@ const duplicateWorkspace = async (sourceId, newName) => {
       serviceItemMap[oldSi.id] = newSi.rows[0].id;
     }
 
+    // 5c-2. Duplicate service_connections (item-to-item connections within a service)
+    const sourceServiceConnections = await client.query(
+      `SELECT * FROM service_connections WHERE workspace_id = $1`,
+      [sourceId]
+    );
+    console.log(`[duplicateWorkspace] Found ${sourceServiceConnections.rows.length} service_connections to duplicate`);
+
+    let svcConnSuccess = 0;
+    let svcConnSkipped = 0;
+    for (const conn of sourceServiceConnections.rows) {
+      const mappedServiceId = serviceMap[conn.service_id];
+      const mappedSourceId = serviceItemMap[conn.source_id];
+      const mappedTargetId = serviceItemMap[conn.target_id];
+
+      if (!mappedServiceId || !mappedSourceId || !mappedTargetId) {
+        console.warn(`[duplicateWorkspace] Skipping service_connection ${conn.id}: service_id=${conn.service_id}->${mappedServiceId}, source_id=${conn.source_id}->${mappedSourceId}, target_id=${conn.target_id}->${mappedTargetId}`);
+        svcConnSkipped++;
+        continue;
+      }
+
+      console.log(`[duplicateWorkspace] service_connection: service_id=${conn.service_id}->${mappedServiceId}, source_id=${conn.source_id}->${mappedSourceId}, target_id=${conn.target_id}->${mappedTargetId}`);
+      await client.query(
+        `INSERT INTO service_connections (
+          service_id, source_id, target_id, workspace_id, connection_type, propagation
+        ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          mappedServiceId,
+          mappedSourceId,
+          mappedTargetId,
+          newWorkspaceId,
+          conn.connection_type || 'connects_to',
+          conn.propagation || 'source_to_target'
+        ]
+      );
+      svcConnSuccess++;
+    }
+    console.log(`[duplicateWorkspace] service_connections duplication: ${svcConnSuccess} success, ${svcConnSkipped} skipped`);
+
     // 5d. Duplicate service_to_service_connections
     const sourceSvcSvcConnections = await client.query(
       `SELECT * FROM service_to_service_connections WHERE workspace_id = $1`,
@@ -300,6 +338,7 @@ const duplicateWorkspace = async (sourceId, newName) => {
       [sourceId]
     );
 
+    const crossServiceConnMap = {};
     for (const conn of sourceCrossConnections.rows) {
       const mappedSourceId = serviceItemMap[conn.source_service_item_id];
       const mappedTargetId = serviceItemMap[conn.target_service_item_id];
@@ -309,11 +348,12 @@ const duplicateWorkspace = async (sourceId, newName) => {
         continue;
       }
 
-      await client.query(
+      const insertResult = await client.query(
         `INSERT INTO cross_service_connections (
           source_service_item_id, target_service_item_id, connection_type,
           direction, propagation_enabled, workspace_id
-        ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id`,
         [
           mappedSourceId,
           mappedTargetId,
@@ -323,6 +363,7 @@ const duplicateWorkspace = async (sourceId, newName) => {
           newWorkspaceId
         ]
       );
+      crossServiceConnMap[conn.id] = insertResult.rows[0].id;
     }
 
     // 6. Duplicate connections
@@ -330,25 +371,38 @@ const duplicateWorkspace = async (sourceId, newName) => {
       `SELECT * FROM connections WHERE workspace_id = $1`,
       [sourceId]
     );
-    
+
     for (const conn of sourceConnections.rows) {
       const mappedSourceId = conn.source_id ? itemMap[conn.source_id] : null;
       const mappedTargetId = conn.target_id ? itemMap[conn.target_id] : null;
       const mappedSourceGroupId = conn.source_group_id ? groupMap[conn.source_group_id] : null;
       const mappedTargetGroupId = conn.target_group_id ? groupMap[conn.target_group_id] : null;
-      
-      if (!mappedSourceId && !mappedSourceGroupId) continue;
-      if (!mappedTargetId && !mappedTargetGroupId) continue;
-      
+      const mappedSourceServiceId = conn.source_service_id ? serviceMap[conn.source_service_id] : null;
+      const mappedTargetServiceId = conn.target_service_id ? serviceMap[conn.target_service_id] : null;
+      const mappedSourceServiceItemId = conn.source_service_item_id ? serviceItemMap[conn.source_service_item_id] : null;
+      const mappedTargetServiceItemId = conn.target_service_item_id ? serviceItemMap[conn.target_service_item_id] : null;
+
+      if (!mappedSourceId && !mappedSourceGroupId && !mappedSourceServiceId && !mappedSourceServiceItemId) continue;
+      if (!mappedTargetId && !mappedTargetGroupId && !mappedTargetServiceId && !mappedTargetServiceItemId) continue;
+
       await client.query(
         `INSERT INTO connections (
-          source_id, target_id, source_group_id, target_group_id, workspace_id
-        ) VALUES ($1, $2, $3, $4, $5)`,
+          source_id, target_id, source_group_id, target_group_id,
+          source_service_id, target_service_id,
+          source_service_item_id, target_service_item_id,
+          connection_type, direction, workspace_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           mappedSourceId,
           mappedTargetId,
           mappedSourceGroupId,
           mappedTargetGroupId,
+          mappedSourceServiceId,
+          mappedTargetServiceId,
+          mappedSourceServiceItemId,
+          mappedTargetServiceItemId,
+          conn.connection_type || 'depends_on',
+          conn.direction || 'forward',
           newWorkspaceId
         ]
       );
@@ -379,80 +433,192 @@ const duplicateWorkspace = async (sourceId, newName) => {
         `SELECT * FROM edge_handles WHERE workspace_id = $1`,
         [sourceId]
       );
-      
+      console.log(`[duplicateWorkspace] Found ${sourceEdgeHandles.rows.length} edge_handles to duplicate`);
+      console.log(`[duplicateWorkspace] itemMap keys: ${Object.keys(itemMap).length}, groupMap keys: ${Object.keys(groupMap).length}, serviceMap keys: ${Object.keys(serviceMap).length}, serviceItemMap keys: ${Object.keys(serviceItemMap).length}`);
+
       for (const edge of sourceEdgeHandles.rows) {
         const edgeId = edge.edge_id;
         let newEdgeId = null;
-        
-        // Pattern 1: e{sourceItemId}-{targetItemId} (item-to-item)
+
+        // Pattern 1: e{id}-{id} — could be CMDB item-to-item OR service item-to-item
+        // CMDB items are stored in edge_handles via CMDBVisualization
+        // Service items are stored in edge_handles via ServiceVisualization (not service_edge_handles)
+        // Try itemMap first, fall back to serviceItemMap
         const itemToItemMatch = edgeId.match(/^e(\d+)-(\d+)$/);
         if (itemToItemMatch) {
           const oldSourceId = parseInt(itemToItemMatch[1]);
           const oldTargetId = parseInt(itemToItemMatch[2]);
-          
-          const newSourceId = itemMap[oldSourceId];
-          const newTargetId = itemMap[oldTargetId];
-          
+
+          // Try CMDB item map first
+          let newSourceId = itemMap[oldSourceId];
+          let newTargetId = itemMap[oldTargetId];
+
           if (newSourceId && newTargetId) {
             newEdgeId = `e${newSourceId}-${newTargetId}`;
-          }
-        }
-        // Pattern 2: e{sourceItemId}-group{groupId} (item-to-group)
-        else if (edgeId.includes('-group')) {
-          const match = edgeId.match(/^e(\d+)-group(\d+)$/);
-          if (match) {
-            const oldSourceId = parseInt(match[1]);
-            const oldGroupId = parseInt(match[2]);
-            
-            const newSourceId = itemMap[oldSourceId];
-            const newGroupId = groupMap[oldGroupId];
-            
-            if (newSourceId && newGroupId) {
-              newEdgeId = `e${newSourceId}-group${newGroupId}`;
+          } else {
+            // Fall back to service item map (ServiceVisualization stores handles in edge_handles)
+            newSourceId = serviceItemMap[oldSourceId];
+            newTargetId = serviceItemMap[oldTargetId];
+            if (newSourceId && newTargetId) {
+              newEdgeId = `e${newSourceId}-${newTargetId}`;
             }
           }
         }
-        // Pattern 3: group{groupId}-e{targetItemId} (group-to-item)
-        else if (edgeId.startsWith('group') && edgeId.includes('-e')) {
-          const match = edgeId.match(/^group(\d+)-e(\d+)$/);
+        // eservice-* patterns MUST be checked BEFORE broad includes('-group'/'-service-')
+        // to avoid being consumed by those conditions
+        // Pattern: eservice-item-{sourceServiceItemId}-{targetId}
+        else if (edgeId.startsWith('eservice-item-')) {
+          const match = edgeId.match(/^eservice-item-(\d+)-(\d+)$/);
           if (match) {
-            const oldGroupId = parseInt(match[1]);
-            const oldTargetId = parseInt(match[2]);
-            
-            const newGroupId = groupMap[oldGroupId];
-            const newTargetId = itemMap[oldTargetId];
-            
-            if (newGroupId && newTargetId) {
-              newEdgeId = `group${newGroupId}-e${newTargetId}`;
+            const newSourceServiceItemId = serviceItemMap[parseInt(match[1])];
+            let newTargetId = itemMap[parseInt(match[2])];
+            if (!newTargetId) {
+              newTargetId = serviceItemMap[parseInt(match[2])];
+            }
+            if (newSourceServiceItemId && newTargetId) {
+              newEdgeId = `eservice-item-${newSourceServiceItemId}-${newTargetId}`;
             }
           }
         }
-        // Pattern 4: group-e{sourceGroupId}-{targetGroupId} (group-to-group)
+        // Pattern: eservice-{serviceId}-service-item-{targetServiceItemId}
+        else if (/^eservice-\d+-service-item-\d+$/.test(edgeId)) {
+          const match = edgeId.match(/^eservice-(\d+)-service-item-(\d+)$/);
+          if (match) {
+            const newSourceId = serviceMap[parseInt(match[1])];
+            const newTargetId = serviceItemMap[parseInt(match[2])];
+            if (newSourceId && newTargetId) {
+              newEdgeId = `eservice-${newSourceId}-service-item-${newTargetId}`;
+            }
+          }
+        }
+        // Pattern: eservice-{serviceId}-service-{targetServiceId}
+        else if (/^eservice-\d+-service-\d+$/.test(edgeId)) {
+          const match = edgeId.match(/^eservice-(\d+)-service-(\d+)$/);
+          if (match) {
+            const newSourceId = serviceMap[parseInt(match[1])];
+            const newTargetId = serviceMap[parseInt(match[2])];
+            if (newSourceId && newTargetId) {
+              newEdgeId = `eservice-${newSourceId}-service-${newTargetId}`;
+            }
+          }
+        }
+        // Pattern: eservice-{serviceId}-group{groupId}
+        else if (/^eservice-\d+-group\d+$/.test(edgeId)) {
+          const match = edgeId.match(/^eservice-(\d+)-group(\d+)$/);
+          if (match) {
+            const newSourceId = serviceMap[parseInt(match[1])];
+            const newTargetId = groupMap[parseInt(match[2])];
+            if (newSourceId && newTargetId) {
+              newEdgeId = `eservice-${newSourceId}-group${newTargetId}`;
+            }
+          }
+        }
+        // Pattern: eservice-{serviceId}-{targetId}
+        else if (/^eservice-\d+-\d+$/.test(edgeId)) {
+          const match = edgeId.match(/^eservice-(\d+)-(\d+)$/);
+          if (match) {
+            const newSourceId = serviceMap[parseInt(match[1])];
+            let newTargetId = itemMap[parseInt(match[2])];
+            if (!newTargetId) {
+              newTargetId = serviceItemMap[parseInt(match[2])];
+            }
+            if (newSourceId && newTargetId) {
+              newEdgeId = `eservice-${newSourceId}-${newTargetId}`;
+            }
+          }
+        }
+        // Pattern: cross-service-{sourceServiceItemId}-{targetServiceItemId} (new format)
+        else if (/^cross-service-\d+-\d+$/.test(edgeId)) {
+          const match = edgeId.match(/^cross-service-(\d+)-(\d+)$/);
+          if (match) {
+            const newSourceId = serviceItemMap[parseInt(match[1])];
+            const newTargetId = serviceItemMap[parseInt(match[2])];
+            if (newSourceId && newTargetId) {
+              newEdgeId = `cross-service-${newSourceId}-${newTargetId}`;
+            }
+          }
+        }
+        // Pattern: cross-service-connection-{connectionId} (legacy format)
+        else if (edgeId.startsWith('cross-service-connection-')) {
+          const match = edgeId.match(/^cross-service-connection-(\d+)$/);
+          if (match) {
+            const oldConnId = parseInt(match[1]);
+            const newConnId = crossServiceConnMap[oldConnId];
+            if (newConnId) {
+              newEdgeId = `cross-service-connection-${newConnId}`;
+            }
+          }
+        }
+        // Pattern: group-e{sourceGroupId}-{targetGroupId} (group-to-group)
         else if (edgeId.startsWith('group-e')) {
           const match = edgeId.match(/^group-e(\d+)-(\d+)$/);
           if (match) {
-            const oldSourceGroupId = parseInt(match[1]);
-            const oldTargetGroupId = parseInt(match[2]);
-            
-            const newSourceGroupId = groupMap[oldSourceGroupId];
-            const newTargetGroupId = groupMap[oldTargetGroupId];
-            
+            const newSourceGroupId = groupMap[parseInt(match[1])];
+            const newTargetGroupId = groupMap[parseInt(match[2])];
             if (newSourceGroupId && newTargetGroupId) {
               newEdgeId = `group-e${newSourceGroupId}-${newTargetGroupId}`;
             }
           }
         }
+        // Pattern: group{groupId}-e{targetItemId} (group-to-item)
+        else if (edgeId.startsWith('group') && edgeId.includes('-e')) {
+          const match = edgeId.match(/^group(\d+)-e(\d+)$/);
+          if (match) {
+            const newGroupId = groupMap[parseInt(match[1])];
+            const newTargetId = itemMap[parseInt(match[2])];
+            if (newGroupId && newTargetId) {
+              newEdgeId = `group${newGroupId}-e${newTargetId}`;
+            }
+          }
+        }
+        // Pattern: e{sourceItemId}-group{groupId} (item-to-group)
+        else if (edgeId.includes('-group')) {
+          const match = edgeId.match(/^e(\d+)-group(\d+)$/);
+          if (match) {
+            const newSourceId = itemMap[parseInt(match[1])];
+            const newGroupId = groupMap[parseInt(match[2])];
+            if (newSourceId && newGroupId) {
+              newEdgeId = `e${newSourceId}-group${newGroupId}`;
+            }
+          }
+        }
+        // Pattern: e{sourceId}-service-item-{targetServiceItemId}
+        else if (edgeId.includes('-service-item-')) {
+          const match = edgeId.match(/^e(\d+)-service-item-(\d+)$/);
+          if (match) {
+            const newSourceId = itemMap[parseInt(match[1])];
+            const newTargetId = serviceItemMap[parseInt(match[2])];
+            if (newSourceId && newTargetId) {
+              newEdgeId = `e${newSourceId}-service-item-${newTargetId}`;
+            }
+          }
+        }
+        // Pattern: e{sourceId}-service-{targetServiceId}
+        else if (edgeId.includes('-service-')) {
+          const match = edgeId.match(/^e(\d+)-service-(\d+)$/);
+          if (match) {
+            const newSourceId = itemMap[parseInt(match[1])];
+            const newTargetId = serviceMap[parseInt(match[2])];
+            if (newSourceId && newTargetId) {
+              newEdgeId = `e${newSourceId}-service-${newTargetId}`;
+            }
+          }
+        }
         
         if (newEdgeId) {
+          console.log(`[duplicateWorkspace] edge_handles: "${edgeId}" -> "${newEdgeId}" (handles: ${edge.source_handle} -> ${edge.target_handle})`);
           await client.query(
             `INSERT INTO edge_handles (edge_id, source_handle, target_handle, workspace_id, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (edge_id) DO NOTHING`,
             [newEdgeId, edge.source_handle, edge.target_handle, newWorkspaceId]
           );
+        } else {
+          console.warn(`[duplicateWorkspace] edge_handles: SKIPPED "${edgeId}" - no pattern matched or mapping failed`);
         }
       }
     } catch (err) {
-
+      console.warn('Error duplicating edge_handles:', err.message);
     }
 
     // 5f. Duplicate service_edge_handles
@@ -472,20 +638,66 @@ const duplicateWorkspace = async (sourceId, newName) => {
           continue;
         }
 
-        // service_edge_handles edge_id format: 'e{itemId}-{itemId}'
         let newEdgeId = edge.edge_id;
+
+        // Pattern A: e{serviceItemId}-{serviceItemId} (item-to-item within service)
         const itemToItemMatch = edge.edge_id.match(/^e(\d+)-(\d+)$/);
         if (itemToItemMatch) {
-          const oldSourceItemId = parseInt(itemToItemMatch[1]);
-          const oldTargetItemId = parseInt(itemToItemMatch[2]);
-          const newSourceItemId = itemMap[oldSourceItemId];
-          const newTargetItemId = itemMap[oldTargetItemId];
-          if (newSourceItemId && newTargetItemId) {
-            newEdgeId = `e${newSourceItemId}-${newTargetItemId}`;
+          const oldSourceId = parseInt(itemToItemMatch[1]);
+          const oldTargetId = parseInt(itemToItemMatch[2]);
+          const newSourceId = serviceItemMap[oldSourceId];
+          const newTargetId = serviceItemMap[oldTargetId];
+          if (newSourceId && newTargetId) {
+            newEdgeId = `e${newSourceId}-${newTargetId}`;
+          }
+        }
+        // Pattern B: service-group-e{sourceGroupId}-{targetGroupId} (group-to-group within service)
+        else if (edge.edge_id.startsWith('service-group-e')) {
+          const match = edge.edge_id.match(/^service-group-e(\d+)-(\d+)$/);
+          if (match) {
+            const oldSourceGroupId = parseInt(match[1]);
+            const oldTargetGroupId = parseInt(match[2]);
+            const newSourceGroupId = serviceGroupMap[oldSourceGroupId];
+            const newTargetGroupId = serviceGroupMap[oldTargetGroupId];
+            if (newSourceGroupId && newTargetGroupId) {
+              newEdgeId = `service-group-e${newSourceGroupId}-${newTargetGroupId}`;
+            }
+          }
+        }
+        // Pattern C: service-group-item-e{groupId}-{itemId} (group-to-item within service)
+        else if (edge.edge_id.startsWith('service-group-item-e')) {
+          const match = edge.edge_id.match(/^service-group-item-e(\d+)-(\d+)$/);
+          if (match) {
+            const oldGroupId = parseInt(match[1]);
+            const oldItemId = parseInt(match[2]);
+            const newGroupId = serviceGroupMap[oldGroupId];
+            const newItemId = serviceItemMap[oldItemId];
+            if (newGroupId && newItemId) {
+              newEdgeId = `service-group-item-e${newGroupId}-${newItemId}`;
+            }
+          }
+        }
+        // Pattern D: service-item-group-e{itemId}-{groupId} (item-to-group within service)
+        else if (edge.edge_id.startsWith('service-item-group-e')) {
+          const match = edge.edge_id.match(/^service-item-group-e(\d+)-(\d+)$/);
+          if (match) {
+            const oldItemId = parseInt(match[1]);
+            const oldGroupId = parseInt(match[2]);
+            const newItemId = serviceItemMap[oldItemId];
+            const newGroupId = serviceGroupMap[oldGroupId];
+            if (newItemId && newGroupId) {
+              newEdgeId = `service-item-group-e${newItemId}-${newGroupId}`;
+            }
           }
         }
 
         // Use ON CONFLICT DO NOTHING to handle duplicates gracefully
+        const oldEdgeId = edge.edge_id;
+        if (newEdgeId !== oldEdgeId) {
+          console.log(`[duplicateWorkspace] service_edge_handles: "${oldEdgeId}" -> "${newEdgeId}" (service: ${edge.service_id} -> ${newServiceId}, handles: ${edge.source_handle} -> ${edge.target_handle})`);
+        } else {
+          console.warn(`[duplicateWorkspace] service_edge_handles: UNMAPPED "${oldEdgeId}" - mapping failed, inserting with original edge_id (will NOT match new edges!)`);
+        }
         await client.query(
           `INSERT INTO service_edge_handles (edge_id, source_handle, target_handle, service_id, workspace_id)
            VALUES ($1, $2, $3, $4, $5)

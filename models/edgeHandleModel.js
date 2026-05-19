@@ -1,7 +1,11 @@
 const pool = require('../db');
 
-const getAllEdgeHandles = () => 
-  pool.query('SELECT * FROM edge_handles');
+const getAllEdgeHandles = (workspaceId) => {
+  if (workspaceId) {
+    return pool.query('SELECT * FROM edge_handles WHERE workspace_id = $1', [workspaceId]);
+  }
+  return pool.query('SELECT * FROM edge_handles');
+};
 
 const getEdgeHandleByEdgeId = (edgeId) =>
   pool.query('SELECT * FROM edge_handles WHERE edge_id = $1', [edgeId]);
