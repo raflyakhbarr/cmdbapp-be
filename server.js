@@ -23,7 +23,7 @@ const { initializeSocket } = require('./socket');
 initializeSocket(server);
 
 const corsOptions = {
-  origin: ['http://localhost:5173', 'http://localhost:5000'],
+  origin: ['http://localhost:5173', 'http://localhost:5000', 'http://172.19.154.232:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -34,7 +34,11 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 app.use('/uploads', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+  const allowedOrigins = ['http://localhost:5173', 'http://172.19.154.232:5173'];
+  const reqOrigin = req.headers.origin;
+  if (allowedOrigins.includes(reqOrigin)) {
+    res.header('Access-Control-Allow-Origin', reqOrigin);
+  }
   res.header('Access-Control-Allow-Methods', 'GET');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.header('Cross-Origin-Resource-Policy', 'cross-origin');

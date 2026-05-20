@@ -3,7 +3,7 @@ let io = null;
 
 const initializeSocket = (server) => {
   io = new Server(server, {
-    cors: { origin: "http://localhost:5173" }
+    cors: { origin: ["http://localhost:5173", "http://172.19.154.232:5173"] }
   });
   io.on('connection', (socket) => {
     socket.on('disconnect', () => {
